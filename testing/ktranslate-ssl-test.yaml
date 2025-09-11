@@ -1,0 +1,18 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "kafka.example.com:9094"
+  topic: "ktranslate-test"
+  securityprotocol: "SSL"
+  sslcafile: "./ssl/ca-cert"
+  sslinsecure: false
+  compression: "none"
+  requiredacks: 1
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 5000
+  emergencycleanup: true
+server:
+  loglevel: "info"
+  logtostdout: true

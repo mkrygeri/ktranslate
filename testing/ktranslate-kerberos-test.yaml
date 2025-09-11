@@ -1,0 +1,32 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9092"
+  topic: "ktranslate-kerberos-test"
+  securityprotocol: "SASL_PLAINTEXT"
+  saslmechanism: "GSSAPI"
+  kerberosservicename: "kafka"
+  kerberosrealm: "EXAMPLE.COM"
+  kerberosconfigpath: "/etc/krb5.conf"
+  kerberoskeytabpath: "/etc/security/keytabs/ktranslate.keytab"
+  kerberosprincipal: "ktranslate@EXAMPLE.COM"
+  kerberosdiablepaaxfast: false
+  compression: "gzip"
+  requiredacks: 1
+  maxmessagebytes: 1000000
+  retrymax: 3
+  flushfrequency: 100
+  flushmessages: 100
+  flushbytes: 65536
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+  joinkey: "^"
+  keepundefined: false
+server:
+  loglevel: "debug"
+  logtostdout: true
+  servicename: "ktranslate-kerberos-test"

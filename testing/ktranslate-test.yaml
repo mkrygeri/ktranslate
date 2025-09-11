@@ -1,0 +1,23 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9092"
+  topic: "ktranslate-test"
+  securityprotocol: "PLAINTEXT"
+  compression: "none"
+  requiredacks: 1
+  maxmessagebytes: 1000000
+  retrymax: 3
+  flushfrequency: 100
+  flushmessages: 100
+  flushbytes: 65536
+rollup:
+  maxmemoryMB: 64
+  maxkeys: 1000
+  emergencycleanup: true
+  topk: 10
+  joinkey: "^"
+server:
+  loglevel: "info"
+  logtostdout: true

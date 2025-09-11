@@ -1,0 +1,10 @@
+bootstrapservers: "localhost:9092"
+topic: "ktranslate-test"
+securityprotocol: "PLAINTEXT"
+compression: "none"
+requiredjacks: 1
+maxmessagebytes: 1000000
+retrymax: 3
+flushfrequency: 100
+flushmessages: 100
+flushbytes: 65536
