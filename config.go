@@ -147,10 +147,13 @@ type DDogSinkConfig struct {
 
 // RollupConfig is the config for rollups
 type RollupConfig struct {
-	JoinKey       string
-	TopK          int
-	Formats       []string
-	KeepUndefined bool
+	JoinKey           string
+	TopK              int
+	Formats           []string
+	KeepUndefined     bool
+	MaxMemoryMB       int
+	MaxKeys           int
+	EmergencyCleanup  bool
 }
 
 // KMuxConfig is the config for the mux server
@@ -470,10 +473,13 @@ func DefaultConfig() *Config {
 			RelayURL: "",
 		},
 		Rollup: &RollupConfig{
-			JoinKey:       "^",
-			TopK:          10,
-			Formats:       []string{},
-			KeepUndefined: false,
+			JoinKey:          "^",
+			TopK:             10,
+			Formats:          []string{},
+			KeepUndefined:    false,
+			MaxMemoryMB:      100,
+			MaxKeys:          5000,
+			EmergencyCleanup: true,
 		},
 		KMux: &KMuxConfig{
 			Dir: ".",

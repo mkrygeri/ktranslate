@@ -37,11 +37,14 @@ var (
 	formatMetric   string
 	compression    string
 	sinks          string
-	maxFlows       int
-	dumpRollups    int
-	rollupAndAlpha bool
-	sample         int
-	sampleMin      int
+	maxFlows            int
+	dumpRollups         int
+	rollupAndAlpha      bool
+	rollupMaxMemoryMB   int
+	rollupMaxKeys       int
+	rollupEmergencyCleanup bool
+	sample              int
+	sampleMin           int
 	apiDevices     string
 	snmpFile       string
 	snmpDisco      bool
@@ -79,6 +82,9 @@ func init() {
 	flag.StringVar(&sinks, "sinks", "stdout", "List of sinks to send data to. Options: (kafka|stdout|new_relic|kentik|net|http|splunk|prometheus|file|s3|gcloud|ddog)")
 	flag.IntVar(&maxFlows, "max_flows_per_message", 10000, "Max number of flows to put in each emitted message")
 	flag.IntVar(&dumpRollups, "rollup_interval", 0, "Export timer for rollups in seconds")
+	flag.IntVar(&rollupMaxMemoryMB, "rollup_max_memory_mb", 100, "Maximum memory usage for rollup cache in MB")
+	flag.IntVar(&rollupMaxKeys, "rollup_max_keys", 5000, "Maximum number of keys in rollup cache")
+	flag.BoolVar(&rollupEmergencyCleanup, "rollup_emergency_cleanup", true, "Enable emergency cleanup of oldest cache entries when limits are reached")
 	flag.StringVar(&teeFlow, "tee_flow", "", "If set, tee flow to another ktranslate instance here.")
 	flag.BoolVar(&rollupAndAlpha, "rollup_and_alpha", false, "Send both rollups and alpha inputs to sinks")
 	flag.IntVar(&sample, "sample_rate", kt.LookupEnvInt("KENTIK_SAMPLE_RATE", 1), "Sampling rate to use. 1 -> 1:1 sampling, 2 -> 1:2 sampling and so on.")
@@ -615,6 +621,27 @@ func applyFlags(cfg *ktranslate.Config) error {
 					return
 				}
 				cfg.Rollup.KeepUndefined = v
+			case "rollup_max_memory_mb":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Rollup.MaxMemoryMB = v
+			case "rollup_max_keys":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Rollup.MaxKeys = v
+			case "rollup_emergency_cleanup":
+				v, err := strconv.ParseBool(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Rollup.EmergencyCleanup = v
 			// pkg/eggs/kmux
 			case "dir":
 				cfg.KMux.Dir = val

@@ -148,13 +148,15 @@ func GetRollups(log logger.Underlying, cfg *ktranslate.RollupConfig) ([]Roller, 
 	for _, rf := range rollups {
 		switch rf.Method {
 		case Unique:
-			ur, err := newUniqueRollup(log, rf, cfg)
+			// Use cache-based implementation for unique rollups
+			ur, err := newCacheRollup(log, rf, cfg, true)
 			if err != nil {
 				return nil, err
 			}
 			rolls = append(rolls, ur)
 		default:
-			statr, err := newStatsRollup(log, rf, cfg)
+			// Use cache-based implementation for all rollups now
+			statr, err := newCacheRollup(log, rf, cfg, false)
 			if err != nil {
 				return nil, err
 			}
