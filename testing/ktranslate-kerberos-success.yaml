@@ -1,0 +1,24 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9093"
+  topic: "ktranslate-success"
+  securityprotocol: "SASL_PLAINTEXT"
+  saslmechanism: "GSSAPI"
+  saslkerberosservicename: "kafka"
+  kerberosprincipal: "producer@EXAMPLE.COM"
+  kerberosrealm: "EXAMPLE.COM"
+  kerberosconfigpath: "/home/mikek/ktranslate/testing/krb5.conf"
+  kerberoskeytabpath: "/home/mikek/ktranslate/testing/producer-example.keytab"
+  compression: "gzip"
+  requiredacks: 1
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+server:
+  loglevel: "info"
+  logtostdout: true
+  servicename: "ktranslate-success"

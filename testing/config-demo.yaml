@@ -1,0 +1,58 @@
+# ktranslate SASL_SSL Configuration Demonstration
+# Shows complete enterprise security implementation
+
+inputs:
+  - flow:
+      workers: 1
+      listen: "localhost:9999"
+
+# Cache-based rollup (replacing HLL)
+rollup:
+  JCHFFile: "./demo.db"
+  MaxMemoryMB: 64      # Memory limit
+  MaxRows: 1000        # Row limit
+  EmergencyAging: true # Aging at 80% threshold
+
+sinks:
+  # Multiple sink configurations showing all security protocols
+  - kafka:
+      name: "plaintext_sink"
+      brokers: ["localhost:9092"]
+      topic: "ktranslate-plaintext"
+      security_protocol: "PLAINTEXT"
+        
+  - kafka:
+      name: "ssl_sink" 
+      brokers: ["kafka.example.com:9093"]
+      topic: "ktranslate-ssl"
+      security_protocol: "SSL"
+      ssl_ca_location: "./ssl/ca-cert"
+      ssl_certificate_location: "./ssl/client.pem"
+      ssl_key_location: "./ssl/client-key.pem"
+      ssl_verify_hostname: true
+        
+  - kafka:
+      name: "sasl_ssl_sink"
+      brokers: ["kafka.example.com:9094"]
+      topic: "ktranslate-sasl-ssl"
+      security_protocol: "SASL_SSL"
+        
+      # Kerberos SASL Configuration
+      sasl_mechanism: "GSSAPI"
+      sasl_gssapi_service_name: "kafka"
+      sasl_gssapi_realm: "EXAMPLE.COM"
+      sasl_gssapi_username: "ktranslate"
+      sasl_gssapi_auth_type: "keytabAuth"
+      sasl_gssapi_keytab_path: "./ktranslate.keytab"
+        
+      # SSL Configuration 
+      ssl_ca_location: "./ssl/ca-cert"
+      ssl_certificate_location: "./ssl/client.pem"
+      ssl_key_location: "./ssl/client-key.pem"
+      ssl_verify_hostname: true
+        
+      # Producer settings
+      compression_type: "snappy"
+      retries: 3
+        
+log_level: "info"

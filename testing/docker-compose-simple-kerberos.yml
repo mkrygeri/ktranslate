@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+      - kdc
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,SASL_PLAINTEXT://localhost:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,SASL_PLAINTEXT://0.0.0.0:9093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_SASL_ENABLED_MECHANISMS: 'GSSAPI'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - ./kerberos:/etc/security/keytabs:ro
+      - ./kerberos/krb5.conf:/etc/krb5.conf:ro
+
+  kdc:
+    image: ubuntu:22.04
+    hostname: kdc.example.com
+    ports:
+      - "88:88/udp"
+      - "749:749"
+    volumes:
+      - ./kerberos:/shared
+    command: >
+      bash -c "
+      apt-get update -qq &&
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-kdc krb5-admin-server krb5-config &&
+      
+      cat > /etc/krb5.conf <<'KRB5'
+[libdefaults]
+  default_realm = EXAMPLE.COM
+  dns_lookup_realm = false
+  dns_lookup_kdc = false
+
+[realms]
+  EXAMPLE.COM = {
+    kdc = kdc.example.com
+    admin_server = kdc.example.com
+  }
+
+[domain_realm]
+  .example.com = EXAMPLE.COM
+  example.com = EXAMPLE.COM
+  localhost = EXAMPLE.COM
+KRB5
+      
+      cp /etc/krb5.conf /shared/ &&
+      
+      kdb5_util create -s -P masterkey123 &&
+      
+      service krb5-kdc start &&
+      service krb5-admin-server start &&
+      
+      kadmin.local -q 'addprinc -pw password123 ktranslate@EXAMPLE.COM' &&
+      kadmin.local -q 'addprinc -pw kafkapass123 kafka/localhost@EXAMPLE.COM' &&
+      
+      kadmin.local -q 'ktadd -k /shared/ktranslate.keytab ktranslate@EXAMPLE.COM' &&
+      kadmin.local -q 'ktadd -k /shared/kafka.keytab kafka/localhost@EXAMPLE.COM' &&
+      
+      chmod 644 /shared/*.keytab /shared/krb5.conf &&
+      
+      echo 'KDC ready!' &&
+      kadmin.local -q 'listprincs' &&
+      ls -la /shared/ &&
+      
+      tail -f /var/log/krb5kdc.log
+      "
+
+volumes:
+  kdc-data: {}

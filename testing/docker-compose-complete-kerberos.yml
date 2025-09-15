@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # Kerberos KDC
+  kerberos-kdc:
+    image: ubuntu:22.04
+    hostname: kdc.example.com
+    container_name: ktranslate-kdc
+    ports:
+      - "88:88/udp"
+      - "749:749/tcp"
+    networks:
+      - ktranslate-network
+    volumes:
+      - ./kerberos:/shared
+    command: |
+      bash -c "
+        echo '🔐 Setting up KDC...'
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-kdc krb5-admin-server krb5-config
+        
+        # Create krb5.conf
+        cat > /etc/krb5.conf << 'KRB5_EOF'
+[libdefaults]
+  default_realm = EXAMPLE.COM
+  dns_lookup_realm = false
+  dns_lookup_kdc = false
+  ticket_lifetime = 24h
+  renew_lifetime = 7d
+  forwardable = true
+
+[realms]
+  EXAMPLE.COM = {
+    kdc = kdc.example.com:88
+    admin_server = kdc.example.com:749
+    default_domain = example.com
+  }
+
+[domain_realm]
+  .example.com = EXAMPLE.COM
+  example.com = EXAMPLE.COM
+  .kdc.example.com = EXAMPLE.COM
+  kdc.example.com = EXAMPLE.COM
+KRB5_EOF
+
+        # Copy to shared directory for host access
+        cp /etc/krb5.conf /shared/
+        
+        # Create KDC database
+        echo '🔑 Creating KDC database...'
+        kdb5_util create -s -P masterkey123
+        
+        # Configure KDC
+        cat > /var/lib/krb5kdc/kdc.conf << 'KDC_CONF_EOF'
+[kdcdefaults]
+  kdc_ports = 88
+  kdc_tcp_ports = 88
+
+[realms]
+  EXAMPLE.COM = {
+    kadmind_port = 749
+    max_life = 12h 0m 0s
+    max_renewable_life = 7d 0h 0m 0s
+    master_key_type = aes256-cts
+    supported_enctypes = aes256-cts:normal aes128-cts:normal
+    database_name = /var/lib/krb5kdc/principal
+    acl_file = /var/lib/krb5kdc/kadm5.acl
+    key_stash_file = /var/lib/krb5kdc/stash
+    default_principal_flags = +preauth
+  }
+KDC_CONF_EOF
+
+        # Create ACL file
+        echo '*/admin@EXAMPLE.COM *' > /var/lib/krb5kdc/kadm5.acl
+        echo 'ktranslate@EXAMPLE.COM *' >> /var/lib/krb5kdc/kadm5.acl
+        echo 'kafka/*@EXAMPLE.COM *' >> /var/lib/krb5kdc/kadm5.acl
+        
+        # Start services
+        echo '🚀 Starting KDC services...'
+        service krb5-kdc start
+        service krb5-admin-server start
+        
+        # Create principals
+        echo '👤 Creating principals...'
+        kadmin.local -q 'addprinc -pw password123 ktranslate@EXAMPLE.COM'
+        kadmin.local -q 'addprinc -pw kafkapass123 kafka/kafka-broker@EXAMPLE.COM'
+        kadmin.local -q 'addprinc -pw kafkapass123 kafka/localhost@EXAMPLE.COM'
+        
+        # Create keytabs
+        echo '🔐 Creating keytabs...'
+        kadmin.local -q 'ktadd -k /shared/ktranslate.keytab ktranslate@EXAMPLE.COM'
+        kadmin.local -q 'ktadd -k /shared/kafka.keytab kafka/kafka-broker@EXAMPLE.COM kafka/localhost@EXAMPLE.COM'
+        
+        # Set permissions
+        chmod 644 /shared/*.keytab /shared/krb5.conf
+        
+        echo '✅ KDC Setup Complete!'
+        echo 'Principals created:'
+        kadmin.local -q 'listprincs'
+        echo 'Files in /shared:'
+        ls -la /shared/
+        
+        # Keep running and log activity
+        echo '📡 KDC is ready and listening...'
+        tail -f /var/log/krb5kdc.log /var/log/kadmind.log 2>/dev/null || sleep infinity
+      "
+
+  # Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1
+    hostname: zookeeper
+    container_name: ktranslate-zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - ktranslate-network
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # Kafka with Kerberos support
+  kafka-broker:
+    image: confluentinc/cp-kafka:7.0.1
+    hostname: kafka-broker
+    container_name: ktranslate-kafka
+    depends_on:
+      - zookeeper
+      - kerberos-kdc
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    networks:
+      - ktranslate-network
+    volumes:
+      - ./kerberos:/etc/security/keytabs:ro
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,SASL_PLAINTEXT://localhost:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,SASL_PLAINTEXT://0.0.0.0:9093'
+      KAFKA_SASL_ENABLED_MECHANISMS: 'GSSAPI,PLAIN'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    command: |
+      bash -c "
+        echo '⏳ Waiting for KDC to be ready...'
+        sleep 30
+        
+        echo '🔧 Configuring Kafka for Kerberos...'
+        # Wait for keytab file
+        while [ ! -f /etc/security/keytabs/kafka.keytab ]; do
+          echo 'Waiting for kafka.keytab...'
+          sleep 2
+        done
+        
+        # Create JAAS config for Kafka server
+        mkdir -p /etc/kafka
+        cat > /etc/kafka/kafka_server_jaas.conf << 'JAAS_EOF'
+KafkaServer {
+    com.sun.security.auth.module.Krb5LoginModule required
+    useKeyTab=true
+    storeKey=true
+    keyTab=\"/etc/security/keytabs/kafka.keytab\"
+    principal=\"kafka/kafka-broker@EXAMPLE.COM\";
+};
+JAAS_EOF
+        
+        export KAFKA_OPTS=\"-Djava.security.krb5.conf=/etc/security/keytabs/krb5.conf -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf\"
+        
+        echo '🚀 Starting Kafka with Kerberos support...'
+        /etc/confluent/docker/run
+      "
+
+networks:
+  ktranslate-network:
+    driver: bridge

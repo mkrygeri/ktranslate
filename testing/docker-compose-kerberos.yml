@@ -1,135 +1,155 @@
 version: '3.8'
 
 services:
-  # Existing services
+  # Zookeeper
   kafka-zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
     networks:
       - ktranslate-net
 
+  # Kafka with Kerberos
   kafka-broker:
-    image: confluentinc/cp-kafka:7.4.0
+    image: confluentinc/cp-kafka:latest
+    hostname: kafka-broker
     depends_on:
       - kafka-zookeeper
       - kerberos-kdc
     ports:
       - "9092:9092"
-      - "9093:9093"  # SASL_PLAINTEXT
-      - "9094:9094"  # SASL_SSL
+      - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: kafka-zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,SASL_PLAINTEXT://0.0.0.0:9093,SASL_SSL://0.0.0.0:9094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,SASL_PLAINTEXT://localhost:9093,SASL_SSL://localhost:9094
-      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: PLAINTEXT
-      KAFKA_SASL_ENABLED_MECHANISMS: GSSAPI,PLAIN
-      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
-      KAFKA_SASL_JAAS_CONFIG: |
-        org.apache.kafka.common.security.plain.PlainLoginModule required
-        username="admin"
-        password="admin-secret"
-        user_admin="admin-secret"
-        user_ktranslate="ktranslate-secret";
-      # Kerberos configuration
-      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
-      KAFKA_OPTS: -Djava.security.krb5.conf=/etc/krb5.conf
-      # SSL configuration
-      KAFKA_SSL_KEYSTORE_FILENAME: kafka.server.keystore.jks
-      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka_keystore_creds
-      KAFKA_SSL_KEY_CREDENTIALS: kafka_ssl_key_creds
-      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.server.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka_truststore_creds
-      KAFKA_SSL_CLIENT_AUTH: none
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,SASL_PLAINTEXT://localhost:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,SASL_PLAINTEXT://0.0.0.0:9093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_SASL_ENABLED_MECHANISMS: 'GSSAPI'
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: 'GSSAPI'
+      KAFKA_OPTS: "-Djava.security.krb5.conf=/etc/krb5.conf -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
     volumes:
-      - ./ssl:/etc/kafka/secrets
+      - ./kerberos:/etc/security/keytabs
       - ./kerberos/krb5.conf:/etc/krb5.conf:ro
-      - ./kerberos/kafka.keytab:/etc/security/keytabs/kafka.keytab:ro
     networks:
       - ktranslate-net
 
-  # Kerberos KDC (Key Distribution Center)
+  # Kerberos KDC
   kerberos-kdc:
     image: ubuntu:22.04
     hostname: kdc.example.com
     ports:
-      - "88:88/udp"   # Kerberos KDC
-      - "749:749"     # Kerberos admin
+      - "88:88/udp"
+      - "749:749"
     environment:
       DEBIAN_FRONTEND: noninteractive
+      KRB5_REALM: EXAMPLE.COM
+      KRB5_DOMAIN: example.com
+      KRB5_ADMINSERVER: kdc.example.com
+      KRB5_KDC: kdc.example.com
     volumes:
-      - ./kerberos:/kerberos-setup
+      - ./kerberos:/shared
       - kdc-data:/var/lib/krb5kdc
     command: |
       bash -c "
-        apt-get update && apt-get install -y krb5-kdc krb5-admin-server krb5-config
-        
-        # Configure realm
-        echo 'EXAMPLE.COM' > /etc/krb5kdc/kadm5.acl
-        echo '*/admin@EXAMPLE.COM *' >> /etc/krb5kdc/kadm5.acl
-        
-        # Initialize KDC database
-        kdb5_util create -s -r EXAMPLE.COM -P masterkey123
-        
-        # Add principals
-        kadmin.local -q 'addprinc -pw admin123 admin/admin@EXAMPLE.COM'
-        kadmin.local -q 'addprinc -pw kafka123 kafka/localhost@EXAMPLE.COM'
-        kadmin.local -q 'addprinc -pw ktranslate123 ktranslate@EXAMPLE.COM'
-        
+        # Update and install Kerberos
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-kdc krb5-admin-server krb5-config
+
+        # Create krb5.conf
+        cat > /etc/krb5.conf << 'KRB5_EOF'
+[logging]
+  default = FILE:/var/log/krb5libs.log
+  kdc = FILE:/var/log/krb5kdc.log
+  admin_server = FILE:/var/log/kadmind.log
+
+[libdefaults]
+  dns_lookup_realm = false
+  ticket_lifetime = 24h
+  renew_lifetime = 7d
+  forwardable = true
+  rdns = false
+  default_realm = EXAMPLE.COM
+
+[realms]
+  EXAMPLE.COM = {
+    kdc = kdc.example.com:88
+    admin_server = kdc.example.com:749
+  }
+
+[domain_realm]
+  .example.com = EXAMPLE.COM
+  example.com = EXAMPLE.COM
+  .kafka-broker = EXAMPLE.COM
+  kafka-broker = EXAMPLE.COM
+  localhost = EXAMPLE.COM
+KRB5_EOF
+
+        # Copy to shared directory
+        cp /etc/krb5.conf /shared/
+
+        # Create KDC database
+        echo 'Creating KDC database...'
+        kdb5_util create -s -P masterkey123
+
+        # Configure kdc.conf
+        cat > /var/lib/krb5kdc/kdc.conf << 'KDC_EOF'
+[kdcdefaults]
+  kdc_ports = 88
+
+[realms]
+  EXAMPLE.COM = {
+    kadmind_port = 749
+    max_life = 12h 0m 0s
+    max_renewable_life = 7d 0h 0m 0s
+    master_key_type = aes256-cts
+    supported_enctypes = aes256-cts:normal aes128-cts:normal
+    database_name = /var/lib/krb5kdc/principal
+    acl_file = /var/lib/krb5kdc/kadm5.acl
+    key_stash_file = /var/lib/krb5kdc/stash
+    default_principal_flags = +preauth
+  }
+KDC_EOF
+
+        # Create ACL file
+        echo '*/admin@EXAMPLE.COM *' > /var/lib/krb5kdc/kadm5.acl
+        echo 'ktranslate@EXAMPLE.COM *' >> /var/lib/krb5kdc/kadm5.acl
+        echo 'kafka/kafka-broker@EXAMPLE.COM *' >> /var/lib/krb5kdc/kadm5.acl
+
+        # Start KDC services
+        echo 'Starting KDC services...'
+        service krb5-kdc start
+        service krb5-admin-server start
+
+        # Create principals
+        echo 'Creating principals...'
+        kadmin.local -q 'addprinc -pw password123 ktranslate@EXAMPLE.COM'
+        kadmin.local -q 'addprinc -pw kafkapass123 kafka/kafka-broker@EXAMPLE.COM'
+
         # Create keytabs
-        kadmin.local -q 'ktadd -k /kerberos-setup/kafka.keytab kafka/localhost@EXAMPLE.COM'
-        kadmin.local -q 'ktadd -k /kerberos-setup/ktranslate.keytab ktranslate@EXAMPLE.COM'
-        
-        # Set proper permissions
-        chmod 644 /kerberos-setup/*.keytab
-        
-        # Start services
-        krb5kdc -n &
-        kadmind -nofork
-      "
-    networks:
-      - ktranslate-net
+        echo 'Creating keytabs...'
+        kadmin.local -q 'ktadd -k /shared/ktranslate.keytab ktranslate@EXAMPLE.COM'
+        kadmin.local -q 'ktadd -k /shared/kafka.keytab kafka/kafka-broker@EXAMPLE.COM'
 
-  # Kerberos client for testing
-  kerberos-client:
-    image: ubuntu:22.04
-    depends_on:
-      - kerberos-kdc
-    volumes:
-      - ./kerberos:/kerberos-setup
-    environment:
-      DEBIAN_FRONTEND: noninteractive
-    command: |
-      bash -c "
-        apt-get update && apt-get install -y krb5-user
-        cp /kerberos-setup/krb5.conf /etc/krb5.conf
-        
-        echo 'Kerberos client ready for testing'
-        echo 'Test commands:'
-        echo '  kinit -kt /kerberos-setup/ktranslate.keytab ktranslate@EXAMPLE.COM'
-        echo '  klist'
-        
-        tail -f /dev/null
-      "
-    networks:
-      - ktranslate-net
+        # Set permissions
+        chmod 644 /shared/*.keytab
+        chmod 644 /shared/krb5.conf
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    depends_on:
-      - kafka-broker
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: ktranslate-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-broker:9092
-      DYNAMIC_CONFIG_ENABLED: true
+        echo 'KDC setup complete!'
+        kadmin.local -q 'listprincs'
+        ls -la /shared/
+
+        # Keep running
+        tail -f /var/log/krb5kdc.log
+      "
     networks:
       - ktranslate-net
 

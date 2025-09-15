@@ -1,0 +1,64 @@
+# ktranslate Configuration for SASL_SSL Testing
+# This configuration tests both SSL encryption and Kerberos authentication
+
+# Input configuration - minimal synthetic flow generation for testing
+inputs:
+  - flow:
+      workers: 1
+      listen: "localhost:9999"
+
+# Rollup configuration - using our new cache-based system
+rollup:
+  JCHFFile: "./jchf.db"
+  # Memory limits (64MB)
+  MaxMemoryMB: 64
+  # Row limits (1000 entries)
+  MaxRows: 1000
+  # Emergency aging when hitting 80% of limits
+  EmergencyAging: true
+
+# Kafka sink configuration for SASL_SSL
+sinks:
+  - kafka:
+      brokers:
+        - "kafka.example.com:9094"
+      topic: "ktranslate-sasl-ssl-test"
+      security_protocol: "SASL_SSL"
+      
+      # Kerberos SASL configuration
+      sasl_mechanism: "GSSAPI"
+      sasl_gssapi_service_name: "kafka"
+      sasl_gssapi_realm: "EXAMPLE.COM"
+      sasl_gssapi_username: "ktranslate"
+      sasl_gssapi_auth_type: "keytabAuth"
+      sasl_gssapi_keytab_path: "/home/mikek/ktranslate/testing/ktranslate.keytab"
+      
+      # SSL configuration
+      ssl_ca_location: "/home/mikek/ktranslate/testing/ssl/ca-cert"
+      ssl_certificate_location: "/home/mikek/ktranslate/testing/ssl/client.pem"
+      ssl_key_location: "/home/mikek/ktranslate/testing/ssl/client-key.pem"
+      ssl_verify_hostname: true
+      ssl_endpoint_identification: "https"
+      
+      # Additional Kafka producer settings
+      compression_type: "snappy"
+      batch_size: 1000
+      linger_ms: 100
+      buffer_memory: 33554432
+      
+      # Retries and reliability
+      retries: 3
+      retry_backoff_ms: 100
+      request_timeout_ms: 30000
+      delivery_timeout_ms: 120000
+
+# General application settings
+app_name: "ktranslate-sasl-ssl-test"
+log_level: "debug"
+metrics:
+  listen: "localhost:8082"
+  
+# Enable detailed Kerberos and SSL debugging
+debug:
+  enable_sasl_debug: true
+  enable_ssl_debug: true

@@ -2,17 +2,21 @@ sinks:
   - kafka
 format: json
 kafkasink:
-  bootstrapservers: "kafka.example.com:9094"
-  topic: "ktranslate-test"
+  bootstrapservers: "localhost:9093"
+  topic: "ktranslate-ssl-test"
   securityprotocol: "SSL"
-  sslcafile: "./ssl/ca-cert"
+  sslcafile: "/home/mikek/ktranslate/testing/ssl-certs/ca-cert"
+  sslcertfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-cert-san"
+  sslkeyfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-key"
   sslinsecure: false
-  compression: "none"
+  compression: "gzip"
   requiredacks: 1
 rollup:
   maxmemoryMB: 128
-  maxkeys: 5000
+  maxkeys: 10000
   emergencycleanup: true
+  topk: 20
 server:
-  loglevel: "info"
+  loglevel: "debug"
   logtostdout: true
+  servicename: "ktranslate-ssl-test"

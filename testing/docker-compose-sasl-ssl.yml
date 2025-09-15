@@ -1,0 +1,168 @@
+version: '3.8'
+services:
+  kdc:
+    image: ubuntu:20.04
+    hostname: kdc.example.com
+    container_name: ktranslate-kdc
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+      - DEBCONF_NONINTERACTIVE_SEEN=true
+    ports:
+      - "88:88"
+      - "464:464"
+    volumes:
+      - ./kdc-data:/var/lib/krb5kdc
+      - ./keytabs:/etc/security/keytabs
+      - ./kdc-config:/etc/krb5kdc
+      - ./krb5.conf:/etc/krb5.conf
+    command: >
+      bash -c "
+        # Pre-configure Kerberos packages to avoid interactive prompts
+        echo 'krb5-config krb5-config/default_realm string EXAMPLE.COM' | debconf-set-selections &&
+        echo 'krb5-config krb5-config/kerberos_servers string kdc.example.com' | debconf-set-selections &&
+        echo 'krb5-config krb5-config/admin_server string kdc.example.com' | debconf-set-selections &&
+        
+        # Update and install packages
+        apt-get update &&
+        apt-get install -y debconf-utils &&
+        apt-get install -y krb5-kdc krb5-admin-server krb5-config &&
+        
+        # Ensure directories exist
+        mkdir -p /var/lib/krb5kdc /etc/security/keytabs &&
+        
+        # Create realm if it doesn't exist
+        if [ ! -f /var/lib/krb5kdc/principal ]; then
+          echo 'Creating Kerberos realm...' &&
+          kdb5_util create -s -P masterkey123 &&
+          
+          # Create principals for Kafka SASL_SSL
+          echo 'Creating Kafka service principal...' &&
+          kadmin.local -q 'addprinc -pw kafkapass kafka/kafka.example.com@EXAMPLE.COM' &&
+          echo 'Creating client principal...' &&
+          kadmin.local -q 'addprinc -pw clientpass ktranslate@EXAMPLE.COM' &&
+          
+          # Create keytabs
+          echo 'Creating keytabs...' &&
+          kadmin.local -q 'ktadd -k /etc/security/keytabs/kafka.service.keytab kafka/kafka.example.com@EXAMPLE.COM' &&
+          kadmin.local -q 'ktadd -k /etc/security/keytabs/ktranslate.keytab ktranslate@EXAMPLE.COM' &&
+          
+          # Set proper permissions
+          chmod 644 /etc/security/keytabs/*.keytab &&
+          
+          echo 'KDC initialization complete.'
+        fi &&
+        
+        # Start KDC services
+        echo 'Starting KDC services...' &&
+        service krb5-kdc start &&
+        service krb5-admin-server start &&
+        
+        echo 'KDC ready - listing principals:' &&
+        kadmin.local -q 'listprincs' &&
+        
+        # Keep container running
+        tail -f /var/log/krb5kdc.log /var/log/krb5lib.log 2>/dev/null || tail -f /dev/null
+      "
+    networks:
+      kafka-net:
+        aliases:
+          - kdc.example.com
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper.example.com
+    container_name: kafka-zookeeper-sasl
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      # Enable SASL for Zookeeper
+      ZOOKEEPER_SASL_ENABLED: "false"  # Simplified for initial testing
+    networks:
+      kafka-net:
+        aliases:
+          - zookeeper.example.com
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka.example.com
+    container_name: kafka-broker-sasl-ssl
+    ports:
+      - "9092:9092"    # PLAINTEXT
+      - "9093:9093"    # SSL
+      - "9094:9094"    # SASL_SSL
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper.example.com:2181
+      
+      # Multiple listeners for different security protocols
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SSL:SSL,SASL_SSL:SASL_SSL
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,SSL://kafka.example.com:9093,SASL_SSL://kafka.example.com:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      
+      # SSL Configuration
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.server.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka_ssl_key_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.server.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: none
+      
+      # SASL Configuration
+      KAFKA_SASL_ENABLED_MECHANISMS: GSSAPI
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: GSSAPI
+      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
+      
+      # Kerberos Configuration
+      KAFKA_OPTS: >
+        -Djava.security.krb5.conf=/etc/krb5.conf
+        -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf
+        -Dsun.security.krb5.debug=true
+      
+      # General Kafka settings
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - ./ssl:/etc/kafka/secrets
+      - ./keytabs:/etc/kafka/keytabs
+      - ./krb5.conf:/etc/krb5.conf
+      - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf
+    depends_on:
+      - zookeeper
+      - kdc
+    networks:
+      kafka-net:
+        aliases:
+          - kafka.example.com
+
+  # Kafka UI for monitoring all protocols
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui-multi
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      # Multiple cluster configurations
+      KAFKA_CLUSTERS_0_NAME: plaintext
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka.example.com:9092
+      
+      KAFKA_CLUSTERS_1_NAME: ssl
+      KAFKA_CLUSTERS_1_BOOTSTRAPSERVERS: kafka.example.com:9093
+      KAFKA_CLUSTERS_1_SECURITY_PROTOCOL: SSL
+      KAFKA_CLUSTERS_1_SSL_TRUSTSTORELOCATION: /var/ssl/kafka.server.truststore.jks
+      KAFKA_CLUSTERS_1_SSL_TRUSTSTOREPASSWORD: password
+    volumes:
+      - ./ssl:/var/ssl
+    networks:
+      - kafka-net
+
+networks:
+  kafka-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

@@ -1,0 +1,20 @@
+2025-09-12T09:45:50.820 ktranslate/ [Info]  version dirty-165b1c0efa97031808ded6db067c8cd6bb9f6cd6 starting
+2025-09-12T09:45:50.820 ktranslate/ [Info]  olly: disabled
+2025-09-12T09:45:50.820 ktranslate/ [Info]  Setting metrics: none
+2025-09-12T09:45:50.824 ktranslate/ [Info] KTranslate Turning on 1 processing threads
+2025-09-12T09:45:50.824 ktranslate/ [Info] KTranslate Using sink kafka
+2025-09-12T09:45:50.824 ktranslate/ [Info] KTranslate Running -- Version dirty-165b1c0efa97031808ded6db067c8cd6bb9f6cd6; Build un-dated build
+2025-09-12T09:45:50.824 ktranslate/ [Info] KTranslate CLI: [/home/mikek/ktranslate/ktranslate -config ./config-ssl-test.yaml -log_level debug]
+2025-09-12T09:45:50.824 ktranslate/ [Info] baseserver.metaserver Listening on 127.0.0.1:46649
+2025-09-12T09:45:50.899 ktranslate/ [Info] kafkaSink System connected to kafka, topic is ktranslate-demo, brokers: localhost:9094, security: SSL
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate splitLogsForSinks running with 1 splits
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate monitorInput 0 Starting
+2025-09-12T09:45:50.899 ktranslate/ [Info] flow kentik driver running
+2025-09-12T09:45:50.899 ktranslate/ [Info] flow Netflow listener running on 127.0.0.1:9999 for format netflow5 and a batch size of 10000
+2025-09-12T09:45:50.899 ktranslate/ [Info] flow Netflow listener sending fields TimeReceived,SamplingRate,Bytes,Packets,SrcAddr,DstAddr,Proto,SrcPort,DstPort,InIf,OutIf,SrcVlan,DstVlan,TCPFlags,SrcAS,DstAS,Type,SamplerAddress,FlowDirection
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate System running with format flat_json, compression none, max flows: 10000, sample rate 1:1 after 1
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate sendToSinks base Online
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate monitorAlpha 0 Online
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate do sendToKTranslate Starting
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate monitorMetricsInput Starting
+2025-09-12T09:45:50.899 ktranslate/ [Info] KTranslate Setting up HTTP system on 127.0.0.1:8081/chf

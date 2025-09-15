@@ -1,0 +1,34 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9092"
+  topic: "ktranslate-kerberos-data-test"
+  securityprotocol: "SASL_PLAINTEXT"
+  saslmechanism: "GSSAPI"
+  kerberosservicename: "kafka"
+  kerberosprincipal: "ktranslate@EXAMPLE.COM"
+  kerberosrealm: "EXAMPLE.COM"
+  kerberosconfigpath: "/home/mikek/ktranslate/testing/krb5.conf"
+  kerberoskeytabpath: "/home/mikek/ktranslate/testing/ktranslate-working.keytab"
+  compression: "gzip"
+  requiredacks: 1
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+server:
+  loglevel: "debug"
+  logtostdout: true
+  servicename: "ktranslate-kerberos-data-test"
+
+# Add some input data for actual data transfer testing
+inputs:
+  - name: fake
+    type: fake
+    fake:
+      device_name: "test-device-kerberos"
+      sample_rate: 1
+      count: 10
+      timeout_ms: 2000

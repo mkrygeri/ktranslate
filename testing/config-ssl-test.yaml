@@ -1,0 +1,27 @@
+flowinput:
+  enable: true
+  protocol: netflow5
+  listenip: "127.0.0.1"
+  listenport: 9999
+  workers: 1
+
+rollup:
+  jchffile: "./test.db" 
+  maxmemorymb: 32
+  maxrows: 500
+  
+kafkasink:
+  bootstrapservers: "localhost:9094"
+  topic: "ktranslate-demo"
+  securityprotocol: "SSL"
+  sslcafile: "./ssl/ca-cert"
+  sslcertfile: "./ssl/client.pem"
+  sslkeyfile: "./ssl/client-key.pem"
+  sslinsecure: false
+  compressiontype: "snappy"
+  
+sinks: 
+  - kafka
+format: flat_json
+server:
+  loglevel: "debug"

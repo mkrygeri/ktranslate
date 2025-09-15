@@ -1,0 +1,28 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9092"
+  topic: "ktranslate-data-transfer-test"
+  securityprotocol: "PLAINTEXT"
+  compression: "gzip"
+  requiredacks: 1
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+server:
+  loglevel: "info"
+  logtostdout: true
+  servicename: "ktranslate-data-transfer-test"
+
+# Add input data to test actual data transfer
+inputs:
+  - name: fake_flows
+    type: fake
+    fake:
+      device_name: "enterprise-router-01"
+      sample_rate: 1
+      count: 20
+      timeout_ms: 1000

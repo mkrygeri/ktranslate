@@ -1,0 +1,10 @@
+sinks:
+  - stdout
+format: json
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 5000  
+  emergencycleanup: true
+server:
+  loglevel: "info"
+  logtostdout: true

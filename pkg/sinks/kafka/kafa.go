@@ -269,6 +269,7 @@ func (s *KafkaSink) configureSASL(config *sarama.Config) error {
 				return fmt.Errorf("kerberos config file not found: %s", s.config.KerberosConfigPath)
 			}
 			os.Setenv("KRB5_CONFIG", s.config.KerberosConfigPath)
+			config.Net.SASL.GSSAPI.KerberosConfigPath = s.config.KerberosConfigPath
 		}
 		
 		// Set keytab file if provided
