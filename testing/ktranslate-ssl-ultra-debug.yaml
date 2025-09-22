@@ -1,0 +1,46 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9093"
+  topic: "ktranslate-ssl-ultra-debug"
+  securityprotocol: "SSL"
+  sslcafile: "/home/mikek/ktranslate/testing/ssl-certs/ca-cert"
+  sslcertfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-cert-san"
+  sslkeyfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-key"
+  sslinsecure: true  # Skip certificate verification for debugging
+  compression: "none"
+  requiredacks: 1
+  batchsize: 1
+  batchbytes: 1024
+  batchtimeout: 100
+  retrymax: 5
+  retrybackoff: 250
+  requesttimeout: 30000
+  metadatatimeout: 60000
+  neterrtimeout: 30000
+  keepalive: 30000
+  flushfrequency: 1000
+  debug: true
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+  cacherollup: true
+server:
+  loglevel: "debug"
+  logtostdout: true
+  servicename: "ktranslate-ssl-ultra-debug"
+  metricverbose: true
+  debugging: true
+inputs:
+  flow:
+    enabled: true
+    port: 9995
+    workers: 1
+    queue: 10
+metrics:
+  enabled: true
+  interval: 10
+  verbose: true

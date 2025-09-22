@@ -1,0 +1,94 @@
+2025-09-22T12:47:35.407 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] ktranslate-sasl-ssl-ultra-debug version dirty-75e490137e30fe85bf5ad0d6a82d703dd97c209d starting
+2025-09-22T12:47:35.407 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] ktranslate-sasl-ssl-ultra-debug olly: disabled
+2025-09-22T12:47:35.407 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] ktranslate-sasl-ssl-ultra-debug Setting metrics: none
+2025-09-22T12:47:35.414 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Turning on 1 processing threads
+2025-09-22T12:47:35.414 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Using sink kafka
+2025-09-22T12:47:35.414 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Running -- Version dirty-75e490137e30fe85bf5ad0d6a82d703dd97c209d; Build un-dated build
+2025-09-22T12:47:35.414 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate CLI: [/home/mikek/ktranslate/ktranslate -config ktranslate-sasl-ssl-ultra-debug.yaml -log_level debug]
+2025-09-22T12:47:35.415 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] baseserver.metaserver Listening on 127.0.0.1:44511
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] kafkaSink System connected to kafka, topic is ktranslate-sasl-ssl-ultra-debug, brokers: localhost:9093, security: SSL
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate splitLogsForSinks running with 1 splits
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate monitorInput 0 Starting
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow kentik driver running
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Netflow listener running on 0.0.0.0:2055 for format netflow5 and a batch size of 10000
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Netflow listener sending fields TimeReceived,SamplingRate,Bytes,Packets,SrcAddr,DstAddr,Proto,SrcPort,DstPort,InIf,OutIf,SrcVlan,DstVlan,TCPFlags,SrcAS,DstAS,Type,SamplerAddress,FlowDirection
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate System running with format json, compression none, max flows: 10000, sample rate 1:1 after 1
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate sendToSinks base Online
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate monitorAlpha 0 Online
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate monitorMetricsInput Starting
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate do sendToKTranslate Starting
+2025-09-22T12:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Setting up HTTP system on 127.0.0.1:8081/chf
+2025-09-22T12:48:08.442 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:51:56.432 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:51:57.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:51:58.424 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:51:59.437 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:00.429 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:01.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:02.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:03.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:04.441 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:05.429 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:06.437 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:07.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:08.430 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:09.429 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:10.430 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:11.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:12.440 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:13.437 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:14.435 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:15.431 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:16.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:17.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:18.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:19.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:20.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:21.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:22.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:23.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:24.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:25.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:26.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:27.427 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:28.435 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:29.429 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:30.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:31.429 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:32.427 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:33.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:34.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:35.439 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:36.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:37.442 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:38.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:39.427 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:40.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:41.422 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:42.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:43.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:44.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:45.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:46.433 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:48.427 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:49.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:50.426 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:51.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:52.428 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:53.435 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:54.430 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:55.429 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:56.435 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:57.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:58.422 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:52:59.436 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:53:00.435 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:53:01.437 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:53:02.437 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:53:03.438 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:53:04.430 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T12:53:05.434 ktranslate/ktranslate-sasl-ssl-ultra-debug [Error] kafkaSink Failed to produce message: kafka server: Message was too large, server rejected it to avoid allocation error
+2025-09-22T13:47:35.420 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Updating the network flow device list.
+2025-09-22T14:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Updating the network flow device list.
+2025-09-22T15:47:35.420 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Updating the network flow device list.
+2025-09-22T16:47:35.419 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Updating the network flow device list.

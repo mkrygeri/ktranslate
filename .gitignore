@@ -19,6 +19,9 @@ bin/*
 config/GeoLite2-Country.mmdb
 config/GeoLite2-ASN.mmdb
 config/profiles
+#kdc key
+testing/kdc-config/.k5.EXAMPLE.COM
+testing/kdc-data/*
 
 #generated on build
 cmd/version/generated_version.go

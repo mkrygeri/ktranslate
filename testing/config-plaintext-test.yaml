@@ -1,0 +1,25 @@
+sinks:
+  - kafka
+
+format: flat_json
+
+flowinput:
+  protocol: netflow5
+  port: 9999
+
+kafkasink:
+  bootstrapservers: "localhost:9092"
+  topic: "ktranslate-test"
+  securityprotocol: "PLAINTEXT"
+  compression: "gzip"
+  requiredacks: 1
+
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+
+server:
+  loglevel: "debug"
+  logtostdout: true
+  servicename: "ktranslate-plaintext-test"

@@ -1,0 +1,65 @@
+sinks:
+  - kafka
+format: json
+# Flow processing limits to prevent large messages
+max_flows_per_message: 100  # Limit to 100 flows per Kafka message
+sample_rate: 1
+kafkasink:
+  bootstrapservers: "localhost:9093"
+  topic: "ktranslate-sasl-ssl-ultra-debug"
+  securityprotocol: "SSL"  # Use SSL only for now
+  # securityprotocol: "SASL_SSL"  # Comment out SASL for now
+  saslmechanism: "GSSAPI"
+  # Kerberos Authentication - Ultra Debug
+  kerberosservicename: "kafka"
+  kerberosprincipal: "ktranslate@EXAMPLE.COM"
+  kerberosrealm: "EXAMPLE.COM"
+  kerberoskdchost: "localhost:88"
+  kerberosconfigpath: "/home/mikek/ktranslate/testing/krb5.conf"
+  kerberoskeytabpath: "/home/mikek/ktranslate/testing/ktranslate-fresh.keytab"
+  # SSL/TLS Encryption - Ultra Debug
+  sslcafile: "/home/mikek/ktranslate/testing/ssl-certs/ca-cert"
+  sslcertfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-cert-san"
+  sslkeyfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-key"
+  sslinsecure: true  # Skip certificate verification for debugging
+  sslskipverify: false
+  # Enhanced Configuration for Debug
+  compression: "gzip"  # Enable compression to reduce message size
+  requiredacks: 1
+  batchsize: 10  # Increase batch size for better throughput
+  batchbytes: 512000  # 512KB per batch (under 1MB Kafka limit)
+  batchtimeout: 1000
+  retrymax: 5
+  retrybackoff: 250
+  requestt-imeout: 30000
+  metadatatimeout: 60000
+  neterrtimeout: 30000
+  keepalive: 30000
+  flushfrequency: 1000
+  debug: true
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+  cacherollup: true
+server:
+  loglevel: "debug"  # Maximum verbosity
+  logtostdout: true
+  servicename: "ktranslate-sasl-ssl-ultra-debug"
+  metricverbose: true
+  debugging: true
+# Ultra verbose flow input configuration  
+flowinput:
+  enable: true
+  protocol: "netflow5"  # Since we're sending NetFlow v5
+  listenip: "0.0.0.0" 
+  listenport: 2055
+  workers: 2  # Increase workers for better processing
+  queuesize: 1000  # Increase queue size
+  messagefields: "TimeReceived,SamplingRate,Bytes,Packets,SrcAddr,DstAddr,Proto,SrcPort,DstPort,InIf,OutIf,SrcVlan,DstVlan,TCPFlags,SrcAS,DstAS,Type,SamplerAddress,FlowDirection"
+# Ultra verbose rollup and metrics
+metrics:
+  enabled: true
+  interval: 10
+  verbose: true

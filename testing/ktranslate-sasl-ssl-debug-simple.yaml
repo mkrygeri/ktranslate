@@ -1,0 +1,33 @@
+sinks:
+  - kafka
+format: json
+kafkasink:
+  bootstrapservers: "localhost:9093"
+  topic: "ktranslate-sasl-ssl-debug"
+  securityprotocol: "SASL_SSL"
+  saslmechanism: "GSSAPI"
+  # Kerberos Authentication
+  kerberosservicename: "kafka"
+  kerberosprincipal: "ktranslate@EXAMPLE.COM"
+  kerberosrealm: "EXAMPLE.COM"
+  kerberoskdchost: "localhost:88"
+  kerberosconfigpath: "/home/mikek/ktranslate/testing/krb5.conf"
+  kerberoskeytabpath: "/home/mikek/ktranslate/testing/ktranslate-debug.keytab"
+  # SSL/TLS Encryption
+  sslcafile: "/home/mikek/ktranslate/testing/ssl-certs/ca-cert"
+  sslcertfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-cert-san"
+  sslkeyfile: "/home/mikek/ktranslate/testing/ssl-certs/kafka-server-key"
+  sslinsecure: true
+  compression: "none"
+  requiredacks: 1
+  debug: true
+rollup:
+  maxmemoryMB: 128
+  maxkeys: 10000
+  emergencycleanup: true
+  topk: 20
+  cacherollup: true
+server:
+  loglevel: "debug"
+  logtostdout: true
+  servicename: "ktranslate-sasl-ssl-debug"

@@ -1,0 +1,20 @@
+2025-09-22T12:43:58.383 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] ktranslate-sasl-ssl-ultra-debug version dirty-75e490137e30fe85bf5ad0d6a82d703dd97c209d starting
+2025-09-22T12:43:58.383 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] ktranslate-sasl-ssl-ultra-debug olly: disabled
+2025-09-22T12:43:58.383 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] ktranslate-sasl-ssl-ultra-debug Setting metrics: none
+2025-09-22T12:43:58.388 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Turning on 1 processing threads
+2025-09-22T12:43:58.388 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Using sink kafka
+2025-09-22T12:43:58.388 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Running -- Version dirty-75e490137e30fe85bf5ad0d6a82d703dd97c209d; Build un-dated build
+2025-09-22T12:43:58.388 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate CLI: [/home/mikek/ktranslate/ktranslate -config ktranslate-sasl-ssl-ultra-debug.yaml]
+2025-09-22T12:43:58.388 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] baseserver.metaserver Listening on 127.0.0.1:45939
+2025-09-22T12:43:58.393 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] kafkaSink System connected to kafka, topic is ktranslate-sasl-ssl-ultra-debug, brokers: localhost:9093, security: SSL
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate monitorInput 0 Starting
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow kentik driver running
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Netflow listener running on 0.0.0.0:2055 for format netflow5 and a batch size of 10000
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] flow Netflow listener sending fields TimeReceived,SamplingRate,Bytes,Packets,SrcAddr,DstAddr,Proto,SrcPort,DstPort,InIf,OutIf,SrcVlan,DstVlan,TCPFlags,SrcAS,DstAS,Type,SamplerAddress,FlowDirection
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate System running with format json, compression none, max flows: 10000, sample rate 1:1 after 1
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate splitLogsForSinks running with 1 splits
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate sendToSinks base Online
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate monitorAlpha 0 Online
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate monitorMetricsInput Starting
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate do sendToKTranslate Starting
+2025-09-22T12:43:58.394 ktranslate/ktranslate-sasl-ssl-ultra-debug [Info] KTranslate Setting up HTTP system on 127.0.0.1:8081/chf
