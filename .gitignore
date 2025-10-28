@@ -22,6 +22,8 @@ config/profiles
 #kdc key
 testing/kdc-config/.k5.EXAMPLE.COM
 testing/kdc-data/*
+kdc-config/*
+kdc-config/.k5.EXAMPLE.COM
 
 #generated on build
 cmd/version/generated_version.go
