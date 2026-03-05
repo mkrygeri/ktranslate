@@ -1,0 +1,15 @@
+KRB5_CONFIG=/home/mikek/kafka-sasl-ssl-lab/kerberos/krb5-host.conf ./ktranslate \
+  -sinks kafka \
+  -kafka_topic ktranslate-test \
+  -bootstrap.servers localhost:9093 \
+  -kafka_security_protocol SASL_PLAINTEXT \
+  -kafka_sasl_mechanism GSSAPI \
+  -kafka_kerberos_service_name kafka \
+  -kafka_kerberos_realm EXAMPLE.COM \
+  -kafka_kerberos_principal ktranslate \
+  -kafka_kerberos_keytab_path /home/mikek/kafka-sasl-ssl-lab/kerberos/ktranslate.keytab \
+  -kafka_kerberos_config_path /home/mikek/kafka-sasl-ssl-lab/kerberos/krb5-host.conf \
+  -kafka_kerberos_disable_pafx_fast \
+  -format json \
+  -listen 127.0.0.1:8085 \
+  -flow_only

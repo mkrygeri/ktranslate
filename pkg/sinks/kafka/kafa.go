@@ -181,6 +181,7 @@ func (s *KafkaSink) Init(ctx context.Context, format formats.Format, compression
 
 	s.saramaConfig = config
 
+
 	// Create producer
 	brokers := strings.Split(s.config.BootstrapServers, ",")
 	for i, broker := range brokers {
@@ -260,7 +261,13 @@ func (s *KafkaSink) configureSASL(config *sarama.Config) error {
 		config.Net.SASL.Mechanism = sarama.SASLTypeGSSAPI
 		config.Net.SASL.GSSAPI.ServiceName = s.config.KerberosServiceName
 		config.Net.SASL.GSSAPI.Realm = s.config.KerberosRealm
-		config.Net.SASL.GSSAPI.Username = s.config.KerberosPrincipal
+		// Sarama constructs the principal as Username@Realm, so strip the @REALM
+		// suffix from the principal if present to avoid double-realm like user@REALM@REALM.
+		principalUser := s.config.KerberosPrincipal
+		if idx := strings.Index(principalUser, "@"); idx >= 0 {
+			principalUser = principalUser[:idx]
+		}
+		config.Net.SASL.GSSAPI.Username = principalUser
 		config.Net.SASL.GSSAPI.DisablePAFXFAST = s.config.KerberosDisablePAFXFAST
 		
 		// Set Kerberos config file path
