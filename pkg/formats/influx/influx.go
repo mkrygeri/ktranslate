@@ -366,6 +366,18 @@ line:
 				f.report(enc.Err(), "rollup count field")
 				continue line
 			}
+			if roll.IsBiflow {
+				enc.AddField(mets[1]+"_rev", lineprotocol.IntValue(int64(roll.MetricRev)))
+				if enc.Err() != nil {
+					f.report(enc.Err(), "rollup int field '%s_rev'", mets[1])
+					continue line
+				}
+				enc.AddField("count_rev", lineprotocol.IntValue(int64(roll.CountRev)))
+				if enc.Err() != nil {
+					f.report(enc.Err(), "rollup count_rev field")
+					continue line
+				}
+			}
 			enc.EndLine(ts)
 			if enc.Err() != nil {
 				f.report(enc.Err(), "rollup end of line on measurement '%s'", roll.Name)

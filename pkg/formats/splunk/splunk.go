@@ -158,6 +158,12 @@ func (f *SplunkFormat) toSplunkMetricRollup(in []rollup.Rollup, ts int64) []Splu
 			"interval": roll.Interval.Microseconds(),
 			"name":     "kentik.rollup." + roll.Name,
 		}
+		if roll.IsBiflow {
+			attr["count_rev"] = roll.CountRev
+			attr["sum_rev"] = uint64(roll.MetricRev)
+			attr["min_rev"] = roll.MinRev
+			attr["max_rev"] = roll.MaxRev
+		}
 		host := ""
 		bad := false
 		for i, pt := range strings.Split(roll.Dimension, roll.KeyJoin) {

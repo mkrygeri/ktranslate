@@ -291,12 +291,21 @@ func (f *NRMFormat) toNRMetricRollup(in []rollup.Rollup) []NRMetric {
 		ms = append(ms, NRMetric{
 			Name: "kentik.rollup." + roll.Name,
 			Type: NR_SUMMARY_TYPE,
-			Value: map[string]uint64{
-				"count": roll.Count,
-				"sum":   uint64(roll.Metric),
-				"min":   roll.Min,
-				"max":   roll.Max,
-			},
+			Value: func() map[string]uint64 {
+				v := map[string]uint64{
+					"count": roll.Count,
+					"sum":   uint64(roll.Metric),
+					"min":   roll.Min,
+					"max":   roll.Max,
+				}
+				if roll.IsBiflow {
+					v["count_rev"] = roll.CountRev
+					v["sum_rev"] = uint64(roll.MetricRev)
+					v["min_rev"] = roll.MinRev
+					v["max_rev"] = roll.MaxRev
+				}
+				return v
+			}(),
 			Interval:   roll.Interval.Microseconds(),
 			Attributes: attr,
 		})

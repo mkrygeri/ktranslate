@@ -26,6 +26,9 @@ type CacheEntry struct {
 	Count       uint64
 	Min         uint64
 	Max         uint64
+	Bytes       uint64 // Total bytes for this tuple (in_bytes + out_bytes), sample-rate adjusted.
+	Packets     uint64 // Total packets for this tuple (in_pkts + out_pkts), sample-rate adjusted.
+	TCPFlags    uint64 // Union (OR) of TCP flags seen for this flow.
 	Provider    kt.Provider
 	UniqueVals  map[string]bool // For unique rollups - simplified cardinality tracking
 	LastUpdated time.Time
@@ -38,6 +41,7 @@ type CacheRollup struct {
 	cache        map[string]*CacheEntry
 	config       *ktranslate.RollupConfig
 	isUnique     bool
+	stitchFlows  bool
 	mux          sync.RWMutex
 	exportKvs    chan chan []Rollup
 	memoryUsage  int64 // Approximate memory usage in bytes
@@ -61,10 +65,20 @@ func newCacheRollup(log logger.Underlying, rd RollupDef, cfg *ktranslate.RollupC
 		return nil, err
 	}
 
+	// Enable RFC-5103 flow stitching only when requested and the dimensions
+	// actually describe a reversible flow tuple.
+	if cfg.StitchFlows {
+		if r.canStitch {
+			r.stitchFlows = true
+		} else {
+			r.Warnf("Flow stitching requested but dimensions are not a reversible flow tuple for %s; reverse metrics disabled", rd.String())
+		}
+	}
+
 	// Start the export goroutine
 	go r.exportLoop()
 
-	r.Infof("New Cache Rollup: %s -> %s (unique=%v)", r.eventType, rd.String(), isUnique)
+	r.Infof("New Cache Rollup: %s -> %s (unique=%v, stitch=%v)", r.eventType, rd.String(), isUnique, r.stitchFlows)
 	return r, nil
 }
 
@@ -160,6 +174,33 @@ func (r *CacheRollup) addStatValues(entry *CacheEntry, mapr map[string]interface
 	if entry.Max < value {
 		entry.Max = value
 	}
+
+	// Accumulate auxiliary per-flow accounting fields used for biflow records.
+	// Each flow record reports its bytes/packets in EITHER the in_* or out_*
+	// fields depending on the exporter's ingress/egress direction flag, so we sum
+	// both to get the true total for this tuple direction. TCP flags are unioned.
+	var bytes, pkts uint64
+	if v, ok := mapr["in_bytes"].(int64); ok {
+		bytes += uint64(v)
+	}
+	if v, ok := mapr["out_bytes"].(int64); ok {
+		bytes += uint64(v)
+	}
+	if v, ok := mapr["in_pkts"].(int64); ok {
+		pkts += uint64(v)
+	}
+	if v, ok := mapr["out_pkts"].(int64); ok {
+		pkts += uint64(v)
+	}
+	if r.sample && sr > 0 {
+		bytes *= sr
+		pkts *= sr
+	}
+	entry.Bytes += bytes
+	entry.Packets += pkts
+	if tf, ok := mapr["tcp_flags"].(int64); ok {
+		entry.TCPFlags |= uint64(tf)
+	}
 }
 
 func (r *CacheRollup) addUniqueValues(entry *CacheEntry, mapr map[string]interface{}) {
@@ -241,6 +282,31 @@ func (r *CacheRollup) doExport(rc chan []Rollup) {
 			Min:       entry.Min,
 			Max:       entry.Max,
 			Provider:  entry.Provider,
+		}
+
+		// Forward-direction auxiliary accounting fields.
+		rollup.Bytes = entry.Bytes
+		rollup.Packets = entry.Packets
+		rollup.TCPFlags = entry.TCPFlags
+
+		// RFC-5103 biflow stitching: attach the reverse-direction metrics by
+		// looking up the responder->initiator flow in the same cache window. If
+		// no matching reverse flow exists, the reverse counters remain 0.
+		if r.stitchFlows {
+			rollup.IsBiflow = true
+			if rev, ok := oldCache[r.reverseKey(entry.Key)]; ok {
+				if r.isUnique {
+					rollup.MetricRev = float64(len(rev.UniqueVals))
+				} else {
+					rollup.MetricRev = float64(rev.Sum)
+				}
+				rollup.CountRev = rev.Count
+				rollup.MinRev = rev.Min
+				rollup.MaxRev = rev.Max
+				rollup.BytesRev = rev.Bytes
+				rollup.PacketsRev = rev.Packets
+				rollup.TCPFlagsRev = rev.TCPFlags
+			}
 		}
 
 		keys = append(keys, rollup)

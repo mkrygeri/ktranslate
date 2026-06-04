@@ -180,6 +180,8 @@ type RollupConfig struct {
 	MaxMemoryMB       int
 	MaxKeys           int
 	EmergencyCleanup  bool
+	FlowCache         bool
+	StitchFlows       bool
 }
 
 // KMuxConfig is the config for the mux server
@@ -528,6 +530,8 @@ func DefaultConfig() *Config {
 			MaxMemoryMB:      100,
 			MaxKeys:          5000,
 			EmergencyCleanup: true,
+			FlowCache:        false,
+			StitchFlows:      false,
 		},
 		KMux: &KMuxConfig{
 			Dir: ".",

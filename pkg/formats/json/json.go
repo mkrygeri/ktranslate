@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/kentik/ktranslate/pkg/formats/util"
 	"github.com/kentik/ktranslate/pkg/kt"
@@ -122,8 +124,20 @@ func (f *JsonFormat) From(raw *kt.Output) ([]map[string]interface{}, error) {
 }
 
 func (f *JsonFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
+	// When flow stitching is enabled, emit a clean RFC-5103 biflow accounting
+	// record (named tuple fields + explicit forward/reverse metrics) instead of
+	// the raw internal rollup struct.
+	var payload interface{} = rolls
+	if len(rolls) > 0 && rolls[0].IsBiflow {
+		recs := make([]map[string]interface{}, 0, len(rolls))
+		for i := range rolls {
+			recs = append(recs, toBiflowRecord(&rolls[i]))
+		}
+		payload = recs
+	}
+
 	if !f.doGz {
-		res, err := json.Marshal(rolls)
+		res, err := json.Marshal(payload)
 		return kt.NewOutputWithProvider(res, rolls[0].Provider, kt.RollupOutput), err
 	}
 
@@ -135,7 +149,7 @@ func (f *JsonFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
 		return nil, err
 	}
 
-	b, err := json.Marshal(rolls)
+	b, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +166,49 @@ func (f *JsonFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
 
 	return kt.NewOutputWithProvider(buf.Bytes(), rolls[0].Provider, kt.RollupOutput), nil
 }
+
+// toBiflowRecord renders a stitched rollup as a flat RFC-5103 biflow record:
+// the flow tuple is expanded into named dimension fields, and the measured
+// metric is reported for both directions (forward and reverse) along with the
+// flow counts. Reverse values are always present (0 when no reverse flow was
+// seen), so each record is a self-contained bidirectional accounting entry.
+func toBiflowRecord(roll *rollup.Rollup) map[string]interface{} {
+	rec := make(map[string]interface{})
+
+	dims := roll.GetDims()
+	vals := strings.Split(roll.Dimension, roll.KeyJoin)
+	for i, d := range dims {
+		if i < len(vals) {
+			rec[d] = coerceValue(vals[i])
+		}
+	}
+
+	rec["name"] = roll.Name
+	rec["is_biflow"] = true
+	rec["bytes_fwd"] = roll.Bytes
+	rec["bytes_rev"] = roll.BytesRev
+	rec["packets_fwd"] = roll.Packets
+	rec["packets_rev"] = roll.PacketsRev
+	rec["count_fwd"] = roll.Count
+	rec["count_rev"] = roll.CountRev
+	rec["tcp_flags_fwd"] = roll.TCPFlags
+	rec["tcp_flags_rev"] = roll.TCPFlagsRev
+
+	return rec
+}
+
+// coerceValue renders a dimension value as an integer when it is purely numeric
+// (e.g. ports, ASNs) and otherwise as the original string (e.g. IP addresses).
+func coerceValue(v string) interface{} {
+	if v == "" {
+		return v
+	}
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return n
+	}
+	return v
+}
+
 
 func strip(in map[string]interface{}) {
 	for k, v := range in {

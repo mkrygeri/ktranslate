@@ -30,3 +30,9 @@ cmd/version/generated_version.go
 config.yaml
 
 .DS_Store
+
+# local testing 
+testing/
+scripts/gen-haproxy-cert.sh
+*.key
+*.pem

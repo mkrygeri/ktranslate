@@ -43,6 +43,8 @@ var (
 	rollupMaxMemoryMB   int
 	rollupMaxKeys       int
 	rollupEmergencyCleanup bool
+	rollupFlowCache     bool
+	rollupStitchFlows   bool
 	sample              int
 	sampleMin           int
 	apiDevices     string
@@ -85,6 +87,8 @@ func init() {
 	flag.IntVar(&rollupMaxMemoryMB, "rollup_max_memory_mb", 100, "Maximum memory usage for rollup cache in MB")
 	flag.IntVar(&rollupMaxKeys, "rollup_max_keys", 5000, "Maximum number of keys in rollup cache")
 	flag.BoolVar(&rollupEmergencyCleanup, "rollup_emergency_cleanup", true, "Enable emergency cleanup of oldest cache entries when limits are reached")
+	flag.BoolVar(&rollupFlowCache, "flow_cache", false, "Use the flow-cache rollup engine (required for -rollup_stitch_flows). When false, the original rollup engine is used.")
+	flag.BoolVar(&rollupStitchFlows, "rollup_stitch_flows", false, "Stitch forward and reverse flows together (RFC-5103 biflow), adding reverse-direction metrics with a _rev suffix. Implies -flow_cache.")
 	flag.StringVar(&teeFlow, "tee_flow", "", "If set, tee flow to another ktranslate instance here.")
 	flag.BoolVar(&rollupAndAlpha, "rollup_and_alpha", false, "Send both rollups and alpha inputs to sinks")
 	flag.IntVar(&sample, "sample_rate", kt.LookupEnvInt("KENTIK_SAMPLE_RATE", 1), "Sampling rate to use. 1 -> 1:1 sampling, 2 -> 1:2 sampling and so on.")
@@ -728,6 +732,20 @@ func applyFlags(cfg *ktranslate.Config) error {
 					return
 				}
 				cfg.Rollup.EmergencyCleanup = v
+			case "flow_cache":
+				v, err := strconv.ParseBool(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Rollup.FlowCache = v
+			case "rollup_stitch_flows":
+				v, err := strconv.ParseBool(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Rollup.StitchFlows = v
 			// pkg/eggs/kmux
 			case "dir":
 				cfg.KMux.Dir = val

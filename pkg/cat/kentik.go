@@ -117,12 +117,19 @@ func (kc *KTranslate) handleJson(cid kt.Cid, raw []byte) error {
 // Gets called from a goroutine-per-request
 func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 	var err error
+	responded := false // Set once an inline path has already written a response.
 
 	if r.Method != http.MethodPost {
 		return
 	}
 
 	defer func() {
+		// If an inline error path already wrote a response (e.g. via http.Error),
+		// don't write a second header/body. Doing so triggers a "superfluous
+		// response.WriteHeader" warning and corrupts the response.
+		if responded {
+			return
+		}
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			kc.metrics.Errors.Mark(1)
@@ -139,6 +146,7 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 		z, err := gzip.NewReader(r.Body)
 		if err != nil {
 			kc.log.Errorf("There was an eror when decompressing the content: %+v.", err)
+			responded = true
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -154,6 +162,7 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 	if cidBase != "" {
 		if c, err := strconv.Atoi(cidBase); err != nil {
 			kc.log.Errorf("There was an error when getting cid paramiter: %s %v.", cidBase, err)
+			responded = true
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		} else {
@@ -168,6 +177,7 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 		size, err := strconv.Atoi(contentLengthString)
 		if err != nil {
 			kc.log.Errorf("There was an error when getting the content length: %v.", err)
+			responded = true
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -184,6 +194,7 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		kc.log.Errorf("There was an error when reading the body content: %v.", err)
+		responded = true
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

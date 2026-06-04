@@ -73,6 +73,23 @@ type Rollup struct {
 	Min       uint64
 	Max       uint64
 	Provider  kt.Provider
+
+	// Auxiliary forward-direction accounting fields, surfaced in biflow records.
+	Bytes    uint64 `json:"bytes,omitempty"`
+	Packets  uint64 `json:"packets,omitempty"`
+	TCPFlags uint64 `json:"tcp_flags,omitempty"`
+
+	// Reverse-direction (RFC-5103 biflow) metrics. These are populated only when
+	// flow stitching is enabled. When a flow has a matching reverse flow in the
+	// cache, these carry the responder->initiator metrics; otherwise they are 0.
+	IsBiflow    bool    `json:"is_biflow,omitempty"`
+	MetricRev   float64 `json:"metric_rev,omitempty"`
+	CountRev    uint64  `json:"count_rev,omitempty"`
+	MinRev      uint64  `json:"min_rev,omitempty"`
+	MaxRev      uint64  `json:"max_rev,omitempty"`
+	BytesRev    uint64  `json:"bytes_rev,omitempty"`
+	PacketsRev  uint64  `json:"packets_rev,omitempty"`
+	TCPFlagsRev uint64  `json:"tcp_flags_rev,omitempty"`
 }
 
 type Method string
@@ -144,23 +161,42 @@ func GetRollups(log logger.Underlying, cfg *ktranslate.RollupConfig) ([]Roller, 
 			return nil, err
 		}
 	}
+
+	// Flow stitching (RFC-5103 biflow) is only implemented by the flow-cache
+	// engine, so requesting it implies -flow_cache.
+	useFlowCache := cfg.FlowCache || cfg.StitchFlows
+
 	rolls := make([]Roller, 0)
 	for _, rf := range rollups {
 		switch rf.Method {
 		case Unique:
-			// Use cache-based implementation for unique rollups
-			ur, err := newCacheRollup(log, rf, cfg, true)
-			if err != nil {
-				return nil, err
+			if useFlowCache {
+				ur, err := newCacheRollup(log, rf, cfg, true)
+				if err != nil {
+					return nil, err
+				}
+				rolls = append(rolls, ur)
+			} else {
+				ur, err := newUniqueRollup(log, rf, cfg)
+				if err != nil {
+					return nil, err
+				}
+				rolls = append(rolls, ur)
 			}
-			rolls = append(rolls, ur)
 		default:
-			// Use cache-based implementation for all rollups now
-			statr, err := newCacheRollup(log, rf, cfg, false)
-			if err != nil {
-				return nil, err
+			if useFlowCache {
+				statr, err := newCacheRollup(log, rf, cfg, false)
+				if err != nil {
+					return nil, err
+				}
+				rolls = append(rolls, statr)
+			} else {
+				statr, err := newStatsRollup(log, rf, cfg)
+				if err != nil {
+					return nil, err
+				}
+				rolls = append(rolls, statr)
 			}
-			rolls = append(rolls, statr)
 		}
 	}
 
@@ -190,12 +226,36 @@ type rollupBase struct {
 	name         string
 	filters      []filter.FilterWrapper
 	hasFilters   bool
+	reverseIdx   []int // Position map used to build RFC-5103 reverse-flow keys.
+	canStitch    bool  // True when the dimensions describe a reversible flow tuple.
 }
 
 type splitDim struct {
 	lhs  []string
 	join string
 	rhs  []string
+}
+
+// reverseDimNames maps a directional flow-tuple dimension to its opposite.
+// It is used to build RFC-5103 reverse (responder->initiator) keys by swapping
+// the source and destination components of a flow tuple.
+var reverseDimNames = map[string]string{
+	"src_addr":        "dst_addr",
+	"dst_addr":        "src_addr",
+	"l4_src_port":     "l4_dst_port",
+	"l4_dst_port":     "l4_src_port",
+	"src_as":          "dst_as",
+	"dst_as":          "src_as",
+	"src_geo":         "dst_geo",
+	"dst_geo":         "src_geo",
+	"src_eth_mac":     "dst_eth_mac",
+	"dst_eth_mac":     "src_eth_mac",
+	"input_port":      "output_port",
+	"output_port":     "input_port",
+	"input_int_desc":  "output_int_desc",
+	"output_int_desc": "input_int_desc",
+	"src_nexthop":     "dst_nexthop",
+	"dst_nexthop":     "src_nexthop",
 }
 
 func (r *rollupBase) init(rd RollupDef) error {
@@ -244,7 +304,61 @@ func (r *rollupBase) init(rd RollupDef) error {
 		}
 	}
 
+	r.initReverseIndex(rd.Dimensions)
+
 	return nil
+}
+
+// initReverseIndex precomputes, for each dimension position, the position whose
+// value should occupy it in a reversed (RFC-5103) flow key. Source/destination
+// pairs (e.g. src_addr/dst_addr) are swapped; non-directional dimensions (e.g.
+// protocol) keep their own position. Stitching is only considered viable when at
+// least one directional pair is present and every directional dimension has its
+// counterpart in the key, so a correct reverse tuple can be formed.
+func (r *rollupBase) initReverseIndex(dims []string) {
+	r.reverseIdx = make([]int, len(dims))
+	pos := make(map[string]int, len(dims))
+	for i, d := range dims {
+		pos[d] = i
+	}
+
+	hasPair := false
+	viable := true
+	for i, d := range dims {
+		rev, isDirectional := reverseDimNames[d]
+		if !isDirectional {
+			r.reverseIdx[i] = i
+			continue
+		}
+		if j, ok := pos[rev]; ok {
+			r.reverseIdx[i] = j
+			hasPair = true
+		} else {
+			// The paired dimension is missing, so we cannot build a correct
+			// reverse tuple for this rollup.
+			r.reverseIdx[i] = i
+			viable = false
+		}
+	}
+
+	r.canStitch = hasPair && viable
+}
+
+// reverseKey builds the RFC-5103 reverse-flow key corresponding to the supplied
+// forward-flow key by swapping the source and destination tuple components.
+func (r *rollupBase) reverseKey(key string) string {
+	if len(r.reverseIdx) == 0 {
+		return key
+	}
+	parts := strings.Split(key, r.keyJoin)
+	if len(parts) != len(r.reverseIdx) {
+		return key // Shape mismatch; cannot safely reverse.
+	}
+	rev := make([]string, len(parts))
+	for i := range parts {
+		rev[i] = parts[r.reverseIdx[i]]
+	}
+	return strings.Join(rev, r.keyJoin)
 }
 
 func (r *rollupBase) getKey(mapr map[string]interface{}) string {

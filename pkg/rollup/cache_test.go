@@ -228,3 +228,138 @@ func TestCacheRollupEmergencyCleanup(t *testing.T) {
 
 	t.Logf("Cache size after emergency cleanup: %d (limit: %d)", cacheSize, cfg.MaxKeys)
 }
+
+func TestCacheRollupStitchFlows(t *testing.T) {
+	cfg := &ktranslate.RollupConfig{
+		JoinKey:     "^",
+		TopK:        100,
+		StitchFlows: true,
+	}
+
+	l := lt.NewTestContextL(logger.NilContext, t).GetLogger().GetUnderlyingLogger()
+
+	// A reversible flow tuple: src/dst addresses and ports.
+	rd := RollupDef{
+		Method:     Sum,
+		Name:       "test_stitch",
+		Metrics:    []string{"bytes"},
+		Dimensions: []string{"src_addr", "dst_addr", "l4_src_port", "l4_dst_port"},
+	}
+
+	rollup, err := newCacheRollup(l, rd, cfg, false)
+	if err != nil {
+		t.Fatalf("Failed to create cache rollup: %v", err)
+	}
+
+	if !rollup.stitchFlows {
+		t.Fatal("Expected stitchFlows to be enabled for a reversible flow tuple")
+	}
+
+	testData := []map[string]interface{}{
+		// Forward flow A->B (initiator).
+		{
+			"bytes":       int64(1000),
+			"src_addr":    "10.0.0.1",
+			"dst_addr":    "10.0.0.2",
+			"l4_src_port": int64(12345),
+			"l4_dst_port": int64(80),
+			"sample_rate": int64(1),
+			"provider":    kt.Provider("pp"),
+		},
+		// Reverse flow B->A (responder).
+		{
+			"bytes":       int64(4000),
+			"src_addr":    "10.0.0.2",
+			"dst_addr":    "10.0.0.1",
+			"l4_src_port": int64(80),
+			"l4_dst_port": int64(12345),
+			"sample_rate": int64(1),
+			"provider":    kt.Provider("pp"),
+		},
+		// A one-directional flow with no reverse counterpart.
+		{
+			"bytes":       int64(500),
+			"src_addr":    "10.0.0.3",
+			"dst_addr":    "10.0.0.4",
+			"l4_src_port": int64(5555),
+			"l4_dst_port": int64(53),
+			"sample_rate": int64(1),
+			"provider":    kt.Provider("pp"),
+		},
+	}
+
+	rollup.Add(testData)
+	results := rollup.Export()
+
+	if len(results) != 3 {
+		t.Fatalf("Expected 3 results, got %d", len(results))
+	}
+
+	fwdKey := "10.0.0.1^10.0.0.2^12345^80"
+	revKey := "10.0.0.2^10.0.0.1^80^12345"
+	loneKey := "10.0.0.3^10.0.0.4^5555^53"
+
+	for _, result := range results {
+		if !result.IsBiflow {
+			t.Errorf("Expected IsBiflow=true for %s", result.Dimension)
+		}
+		switch result.Dimension {
+		case fwdKey:
+			if result.Metric != 1000.0 {
+				t.Errorf("Forward metric: expected 1000, got %f", result.Metric)
+			}
+			if result.MetricRev != 4000.0 {
+				t.Errorf("Forward reverse metric: expected 4000, got %f", result.MetricRev)
+			}
+			if result.CountRev != 1 {
+				t.Errorf("Forward reverse count: expected 1, got %d", result.CountRev)
+			}
+		case revKey:
+			if result.Metric != 4000.0 {
+				t.Errorf("Reverse metric: expected 4000, got %f", result.Metric)
+			}
+			if result.MetricRev != 1000.0 {
+				t.Errorf("Reverse reverse metric: expected 1000, got %f", result.MetricRev)
+			}
+		case loneKey:
+			if result.Metric != 500.0 {
+				t.Errorf("Lone metric: expected 500, got %f", result.Metric)
+			}
+			if result.MetricRev != 0.0 {
+				t.Errorf("Lone reverse metric: expected 0 (no reverse flow), got %f", result.MetricRev)
+			}
+			if result.CountRev != 0 {
+				t.Errorf("Lone reverse count: expected 0, got %d", result.CountRev)
+			}
+		default:
+			t.Errorf("Unexpected result dimension: %s", result.Dimension)
+		}
+	}
+}
+
+func TestCacheRollupStitchFlowsNotViable(t *testing.T) {
+	cfg := &ktranslate.RollupConfig{
+		JoinKey:     "^",
+		TopK:        100,
+		StitchFlows: true,
+	}
+
+	l := lt.NewTestContextL(logger.NilContext, t).GetLogger().GetUnderlyingLogger()
+
+	// src_addr has no dst_addr counterpart -> not a reversible tuple.
+	rd := RollupDef{
+		Method:     Sum,
+		Name:       "test_stitch_bad",
+		Metrics:    []string{"bytes"},
+		Dimensions: []string{"src_addr", "protocol"},
+	}
+
+	rollup, err := newCacheRollup(l, rd, cfg, false)
+	if err != nil {
+		t.Fatalf("Failed to create cache rollup: %v", err)
+	}
+
+	if rollup.stitchFlows {
+		t.Fatal("Expected stitchFlows to be disabled when dimensions are not reversible")
+	}
+}
