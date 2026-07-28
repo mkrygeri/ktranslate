@@ -42,6 +42,8 @@ type OtelFormat struct {
 	trapLog      *OtelLogger
 	logTee       chan string
 	metrics      *OtelMetrics
+	warnFull     map[string]bool
+	registry     go_metrics.Registry
 }
 
 const (
@@ -68,7 +70,7 @@ func init() {
 }
 
 type OtelMetrics struct {
-	ExportDrops go_metrics.Counter
+	ExportDrops map[string]go_metrics.Meter
 }
 
 /*
@@ -88,8 +90,10 @@ func NewFormat(ctx context.Context, log logger.Underlying, cfg *ktranslate.OtelF
 		config:       cfg,
 		inputs:       map[string]chan OtelData{},
 		logTee:       logTee,
+		warnFull:     map[string]bool{},
+		registry:     registry,
 		metrics: &OtelMetrics{
-			ExportDrops: go_metrics.GetOrRegisterCounter("otel_export_drops", registry),
+			ExportDrops: map[string]go_metrics.Meter{},
 		},
 	}
 
@@ -176,7 +180,7 @@ func NewFormat(ctx context.Context, log logger.Underlying, cfg *ktranslate.OtelF
 	jf.trapLog = ol
 
 	otelm = otel.Meter("ktranslate")
-	jf.Infof("Running exporting via %s to %s. Blocking: %v", cfg.Protocol, cfg.Endpoint, cfg.NoBlockExport)
+	jf.Infof("Running exporting via %s to %s. NoBlockExport: %v", cfg.Protocol, cfg.Endpoint, cfg.NoBlockExport)
 
 	return jf, nil
 }
@@ -189,6 +193,10 @@ func (f *OtelFormat) To(msgs []*kt.JCHF, serBuf []byte) (*kt.Output, error) {
 
 	if len(res) == 0 {
 		return nil, nil
+	}
+
+	for i := range res {
+		res[i].Name = kt.SanitizeUTF8(res[i].Name)
 	}
 
 	f.mux.RLock()
@@ -231,7 +239,25 @@ func (f *OtelFormat) To(msgs []*kt.JCHF, serBuf []byte) (*kt.Output, error) {
 			select {
 			case ch <- m:
 			default:
-				f.metrics.ExportDrops.Inc(1)
+				if !f.warnFull[m.Name] {
+					f.mux.RUnlock()
+					f.mux.Lock()
+					firstWarn := !f.warnFull[m.Name]
+					if firstWarn {
+						f.warnFull[m.Name] = true
+						f.metrics.ExportDrops[m.Name] = go_metrics.GetOrRegisterMeter(fmt.Sprintf("otel_export_drops^name=%s^force=true", m.Name), f.registry)
+					}
+					f.mux.Unlock()
+					f.mux.RLock()
+					if firstWarn {
+						f.Warnf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					} else {
+						f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					}
+					f.metrics.ExportDrops[m.Name].Mark(1)
+				} else {
+					f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+				}
 			}
 		} else {
 			ch <- m
@@ -251,6 +277,10 @@ func (f *OtelFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
 	res := f.toOtelDataRollup(rolls)
 	if len(res) == 0 {
 		return nil, nil
+	}
+
+	for i := range res {
+		res[i].Name = kt.SanitizeUTF8(res[i].Name)
 	}
 
 	f.mux.RLock()
@@ -292,7 +322,25 @@ func (f *OtelFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
 			select {
 			case ch <- m:
 			default:
-				f.metrics.ExportDrops.Inc(1)
+				if !f.warnFull[m.Name] {
+					f.mux.RUnlock()
+					f.mux.Lock()
+					firstWarn := !f.warnFull[m.Name]
+					if firstWarn {
+						f.warnFull[m.Name] = true
+						f.metrics.ExportDrops[m.Name] = go_metrics.GetOrRegisterMeter(fmt.Sprintf("otel_export_drops^name=%s^force=true", m.Name), f.registry)
+					}
+					f.mux.Unlock()
+					f.mux.RLock()
+					if firstWarn {
+						f.Warnf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					} else {
+						f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					}
+					f.metrics.ExportDrops[m.Name].Mark(1)
+				} else {
+					f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+				}
 			}
 		} else {
 			ch <- m
@@ -723,22 +771,23 @@ type OtelData struct {
 func (d *OtelData) GetTagValues() attribute.Set {
 	res := make([]attribute.KeyValue, 0, len(d.Tags))
 	for k, v := range d.Tags {
+		key := kt.SanitizeUTF8(k)
 		switch t := v.(type) {
 		case string:
-			res = append(res, attribute.String(k, t))
+			res = append(res, attribute.String(key, kt.SanitizeUTF8(t)))
 		case int64:
-			res = append(res, attribute.Int64(k, t))
+			res = append(res, attribute.Int64(key, t))
 		case int32:
-			res = append(res, attribute.Int64(k, int64(t)))
+			res = append(res, attribute.Int64(key, int64(t)))
 		case float64:
-			res = append(res, attribute.Float64(k, t))
+			res = append(res, attribute.Float64(key, t))
 		case uint32:
-			res = append(res, attribute.Int64(k, int64(t)))
+			res = append(res, attribute.Int64(key, int64(t)))
 		case uint64:
-			res = append(res, attribute.Int64(k, int64(t)))
+			res = append(res, attribute.Int64(key, int64(t)))
 		default:
 			// Convert unknown types to string representation
-			res = append(res, attribute.String(k, fmt.Sprintf("%v", t)))
+			res = append(res, attribute.String(key, kt.SanitizeUTF8(fmt.Sprintf("%v", t))))
 		}
 	}
 	s, _ := attribute.NewSetWithFiltered(res, func(kv attribute.KeyValue) bool { return true })
