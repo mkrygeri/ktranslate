@@ -11,28 +11,40 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	synthetics "github.com/kentik/api-schema-public/gen/go/kentik/synthetics/v202202"
+	devicepb "github.com/kentik/api-schema-public/gen/go/kentik/device/v202504beta2"
+	tagging "github.com/kentik/api-schema-public/gen/go/kentik/enrichments/enumerations/v202601alpha1"
+	interfacepb "github.com/kentik/api-schema-public/gen/go/kentik/interface/v202108alpha1"
+	sitepb "github.com/kentik/api-schema-public/gen/go/kentik/site/v202509"
+	synthetics "github.com/kentik/api-schema-public/gen/go/kentik/synthetics/v202309"
 	"github.com/kentik/ktranslate"
 	"github.com/kentik/ktranslate/pkg/eggs/logger"
 	"github.com/kentik/ktranslate/pkg/kt"
+	"github.com/kentik/ktranslate/pkg/version"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const (
-	CACHE_TIME_DEVICE             = 1 * time.Hour
-	API_TIMEOUT                   = 60 * time.Second
-	USER_AGENT_BASE               = "KentikFirehose"
-	HTTP_USER_AGENT               = "User-Agent"
-	API_EMAIL_HEADER              = "X-CH-Auth-Email"
-	API_PASSWORD_HEADER           = "X-CH-Auth-API-Token"
-	MIN_TIME_BETWEEN_SYNTH_CHECKS = 60 * time.Second
+	CACHE_TIME_DEVICE               = 1 * time.Hour
+	API_TIMEOUT                     = 60 * time.Second
+	HTTP_USER_AGENT                 = "User-Agent"
+	API_EMAIL_HEADER                = "X-CH-Auth-Email"
+	API_PASSWORD_HEADER             = "X-CH-Auth-API-Token"
+	MIN_TIME_BETWEEN_SYNTH_CHECKS   = 60 * time.Second
+	KT_INTERFACE_LOOKUP_TEXT_FILTER = "KT_INTERFACE_LOOKUP_TEXT_FILTER"
+	KT_LOAD_CUSTOM_COLUMNS          = "KT_LOAD_CUSTOM_COLUMNS"
+	KT_API_LAZY_LOAD_CUSTOMS        = "KT_API_LAZY_LOAD_CUSTOMS"
+	KT_API_LAZY_LOAD_INTERFACES     = "KT_API_LAZY_LOAD_INTERFACES"
 )
 
 var (
@@ -45,18 +57,26 @@ func init() {
 
 type KentikApi struct {
 	logger.ContextL
-	tr            *http.Transport
-	client        *http.Client
-	devices       map[kt.Cid]kt.Devices
-	synAgents     map[kt.AgentId]*synthetics.Agent
-	synAgentsByIP map[string]*synthetics.Agent
-	synTests      map[kt.TestId]*synthetics.Test
-	setTime       time.Time
-	apiTimeout    time.Duration
-	synClient     synthetics.SyntheticsAdminServiceClient
-	mux           sync.RWMutex
-	lastSynth     time.Time
-	config        *ktranslate.Config
+	tr                  *http.Transport
+	client              *http.Client
+	devices             map[kt.Cid]kt.Devices
+	synAgents           map[kt.AgentId]*synthetics.Agent
+	synAgentsByIP       map[string]*synthetics.Agent
+	synTests            map[kt.TestId]*synthetics.Test
+	setTime             time.Time
+	apiTimeout          time.Duration
+	synClient           synthetics.SyntheticsAdminServiceClient
+	deviceClient        devicepb.DeviceServiceClient
+	interfaceClient     interfacepb.InterfaceServiceClient
+	siteClient          sitepb.SiteServiceClient
+	mux                 sync.RWMutex
+	lastSynth           time.Time
+	config              *ktranslate.Config
+	tagLookupClient     tagging.EnumerationsAdminServiceClient
+	lazyLoadCustoms     bool
+	fullLoadCustoms     bool
+	lazyLoadInts        bool
+	interfaceFilterText string
 }
 
 func NewKentikApi(ctx context.Context, log logger.ContextL, cfg *ktranslate.Config) (*KentikApi, error) {
@@ -66,7 +86,6 @@ func NewKentikApi(ctx context.Context, log logger.ContextL, cfg *ktranslate.Conf
 		intv, _ := strconv.Atoi(apiTimeoutStr)
 		apiTimeout = time.Duration(intv) * time.Second
 	}
-	log.Infof("Setting API timeout to %v", apiTimeout)
 
 	tr := &http.Transport{
 		DisableCompression: false,
@@ -79,87 +98,30 @@ func NewKentikApi(ctx context.Context, log logger.ContextL, cfg *ktranslate.Conf
 	client := &http.Client{Transport: tr, Timeout: apiTimeout}
 
 	kapi := &KentikApi{
-		ContextL:   log,
-		tr:         tr,
-		client:     client,
-		apiTimeout: apiTimeout,
-		config:     cfg,
+		ContextL:            log,
+		tr:                  tr,
+		client:              client,
+		apiTimeout:          apiTimeout,
+		config:              cfg,
+		lazyLoadCustoms:     kt.LookupEnvBool(KT_API_LAZY_LOAD_CUSTOMS, false),
+		fullLoadCustoms:     kt.LookupEnvBool(KT_LOAD_CUSTOM_COLUMNS, false),
+		lazyLoadInts:        kt.LookupEnvBool(KT_API_LAZY_LOAD_INTERFACES, false),
+		interfaceFilterText: kt.LookupEnvString(KT_INTERFACE_LOOKUP_TEXT_FILTER, ""),
 	}
 
+	log.Infof("Setting API timeout to %v, lazyLoadInterfaces=%v, lazyLoadCustoms=%v, fullyLoadCustoms=%v",
+		apiTimeout, kapi.lazyLoadInts, kapi.lazyLoadCustoms, kapi.fullLoadCustoms)
+
 	// Now, check to see if synthetics API works.
-	err := kapi.connectSynth(ctx)
+	err := kapi.connectSynthAndLookup(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// check api works and also pre-populate cache.
-	err = kapi.getDevices(ctx)
 
 	// Drop cache every hour to keep up to date
 	go kapi.manageCache(ctx)
 
 	return kapi, err
-}
-
-func (api *KentikApi) getDeviceInfo(ctx context.Context, apiUrl string, apiEmail string, apiToken string) ([]byte, error) {
-	if apiEmail == "" {
-		if v := api.config.API.DeviceFile; v != "" {
-			api.Infof("Reading devices from local file: %s", v)
-			return os.ReadFile(v)
-		}
-	}
-
-	// Try to make a request, parse the result as json.
-	req, err := http.NewRequestWithContext(ctx, "GET", apiUrl, nil)
-	if err != nil {
-		api.Errorf("Error with Launcher: %v", err)
-		return nil, err
-	}
-
-	userAgentString := USER_AGENT_BASE
-
-	req.Header.Add(API_EMAIL_HEADER, apiEmail)
-	req.Header.Add(API_PASSWORD_HEADER, apiToken)
-	req.Header.Add(HTTP_USER_AGENT, userAgentString+" AGENT")
-
-	resp, err := api.client.Do(req)
-	if err != nil {
-		api.Errorf("Error with Launcher: %v", err)
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		api.Errorf("Error with Launcher: %v", err)
-		api.client = &http.Client{Transport: api.tr, Timeout: api.apiTimeout}
-		return nil, err
-	} else if resp.StatusCode == 404 {
-		// This should mean that the device is no longer valid -- it's been deleted,
-		// or the company has expired, or some similar issue.  We'll stop the flow at
-		// chfproxy-relay, anyway, but it's important to bring down the client agent
-		// here so that if the customer deletes a device and then adds a new version
-		// of it with the same sending-ip, we'll re-do the lookup and start treating
-		// the flow as the new device.  So log the error we received, but don't return
-		// an error -- return an empty json block.
-		api.Warnf("Received a %d error from API: %s", resp.StatusCode, body)
-		return []byte("{}"), nil
-	} else if resp.StatusCode == 403 {
-		// This should mean that the credentials that the agent was started with have become
-		// invalid while the agent was running.  If this is true, we've decided to stop sending
-		// flow from all device, in order to attract attention to the issue; otherwise, we
-		// could keep sending flow indefinitely (as long as we keep sending flow, proxy-relay
-		// doesn't have to re-authenticate), but couldn't add new devices, and all flow could be
-		// cut off by a later proxy-relay restart.  Better to fail quickly.
-		api.Warnf("Received a %d error from API: %s", resp.StatusCode, body)
-		return []byte("{}"), nil
-	} else if resp.StatusCode >= 300 {
-		err = fmt.Errorf("HTTP error: status code %d, body %v", resp.StatusCode, string(body))
-		api.Errorf("Lookup failed: %v", err)
-		return nil, err
-	}
-
-	return body, nil
 }
 
 func (api *KentikApi) UpdateTests(ctx context.Context) {
@@ -172,7 +134,7 @@ func (api *KentikApi) UpdateTests(ctx context.Context) {
 	}
 
 	go func() {
-		err := api.getSynthInfo(ctx)
+		err := api.getSynthAndDeviceInfo(ctx)
 		if err != nil {
 			api.Errorf("Cannot get API synth on demand: %v", err)
 		}
@@ -224,73 +186,66 @@ func (api *KentikApi) GetDevicesAsMap(cid kt.Cid) map[string]*kt.Device {
 	return res
 }
 
-func (api *KentikApi) GetDevice(cid kt.Cid, did kt.DeviceID) *kt.Device {
+func (api *KentikApi) GetInterface(ctx context.Context, dev *kt.Device, port kt.IfaceID) (*kt.Interface, bool) {
+	if api == nil || dev == nil {
+		return nil, false
+	}
+
+	if api.lazyLoadInts && !dev.LoadedInterfaces() {
+		go func() {
+			ldev := dev
+			for _, info := range api.config.KentikCreds {
+				md := metadata.New(map[string]string{
+					"X-CH-Auth-Email":     info.APIEmail,
+					"X-CH-Auth-API-Token": info.APIToken,
+				})
+				ctxo := metadata.NewOutgoingContext(ctx, md)
+				err := api.getInterfaces(ctxo, ldev.IDStr, ldev)
+				if err != nil {
+					api.Warnf("Cannot load interfaces for %s %s, %v", ldev.IDStr, info.APIEmail, err)
+				} else {
+					return
+				}
+			}
+		}()
+	}
+
+	if i, ok := dev.Interfaces[port]; ok {
+		return &i, true
+	}
+
+	return nil, false
+}
+
+func (api *KentikApi) GetDevice(ctx context.Context, cid kt.Cid, did kt.DeviceID) *kt.Device {
 	if api == nil {
 		return nil
 	}
 	if c, ok := api.devices[cid]; ok {
-		return c[did]
-	}
-	return nil
-}
-
-func (api *KentikApi) getInterfaces(ctx context.Context, did kt.DeviceID, info ktranslate.KentikCred) ([]kt.Interface, error) {
-	res, err := api.getDeviceInfo(ctx, fmt.Sprintf(api.config.APIBaseURL+"/api/internal/device/%d/interfaces", did), info.APIEmail, info.APIToken)
-	if err != nil {
-		return nil, err
-	}
-	interfaces := []kt.Interface{}
-	err = json.Unmarshal(res, &interfaces)
-	return interfaces, err
-}
-
-func (api *KentikApi) getDevices(ctx context.Context) error {
-	stime := time.Now()
-	resDev := map[kt.Cid]kt.Devices{}
-	num := 0
-	for _, info := range api.config.KentikCreds {
-		res, err := api.getDeviceInfo(ctx, api.config.APIBaseURL+"/api/internal/devices", info.APIEmail, info.APIToken)
-		if err != nil {
-			return err
+		dev := c[did]
+		if dev == nil {
+			return dev
 		}
-		var devices kt.DeviceList
-		err = json.Unmarshal(res, &devices)
-		if err != nil {
-			return err
-		}
-
-		for _, device := range devices.Devices {
-			myd := device
-			if _, ok := resDev[device.CompanyID]; !ok {
-				resDev[device.CompanyID] = map[kt.DeviceID]*kt.Device{}
-			}
-			myd.Interfaces = map[kt.IfaceID]kt.Interface{}
-			interfaces, err := api.getInterfaces(ctx, device.ID, info)
-			if err != nil {
-				api.Errorf("Cannot get interfaces for %v: %v", device.Name, err)
-			} else {
-				for _, intf := range interfaces {
-					intfl := intf // Should this be a pointer?
-					myd.Interfaces[intf.SnmpID] = intfl
+		if api.lazyLoadCustoms && !dev.LoadedCustoms() {
+			go func() {
+				ldev := dev
+				for _, info := range api.config.KentikCreds {
+					md := metadata.New(map[string]string{
+						"X-CH-Auth-Email":     info.APIEmail,
+						"X-CH-Auth-API-Token": info.APIToken,
+					})
+					ctxo := metadata.NewOutgoingContext(ctx, md)
+					err := api.loadCustoms(ctxo, ldev.IDStr, ldev)
+					if err != nil {
+						api.Warnf("Cannot load customs for %s %s, %v", ldev.IDStr, info.APIEmail, err)
+					} else {
+						return
+					}
 				}
-			}
-			resDev[device.CompanyID][device.ID] = &myd
-			num++
+			}()
 		}
-
-		api.Infof("Loaded %d Kentik devices via API for %s", len(devices.Devices), info.APIEmail)
+		return dev
 	}
-
-	api.setTime = time.Now()
-	api.Infof("Loaded %d Kentik devices via API in %v", num, api.setTime.Sub(stime))
-	api.devices = resDev
-
-	// Now pull in site info for these devices.
-	err := api.getSites(ctx)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -298,30 +253,40 @@ func (api *KentikApi) getSites(ctx context.Context) error {
 	stime := time.Now()
 	num := 0
 	mapped := 0
-	siteMap := map[int]*kt.FullSite{}
+	siteMap := map[string]*sitepb.Site{}
+
 	for _, info := range api.config.KentikCreds {
-		res, err := api.getDeviceInfo(ctx, api.config.GRPCBaseURL+"/site/v202509/sites", info.APIEmail, info.APIToken)
-		if err != nil {
-			return err
-		}
-		var sites kt.SiteList
-		err = json.Unmarshal(res, &sites)
-		if err != nil {
-			return err
-		}
+		md := metadata.New(map[string]string{
+			"X-CH-Auth-Email":     info.APIEmail,
+			"X-CH-Auth-API-Token": info.APIToken,
+		})
+		ctxo := metadata.NewOutgoingContext(ctx, md)
 
-		for _, site := range sites.Sites {
-			if idInt, err := strconv.Atoi(site.ID); err == nil {
-				ls := site
-				siteMap[idInt] = &ls
-				num++
+		lt := &sitepb.ListSitesRequest{}
+		r, err := api.siteClient.ListSites(ctxo, lt)
+		if err != nil {
+			if status.Code(err) == codes.Unimplemented {
+				api.Warnf("Site ListSites endpoint not implemented (deprecated API); skipping.")
+				return nil
 			}
+
+		// There's a strange case where some sites return an error here regardless. We log and move on.
+			api.Warnf("Site ListSites endpoint returned an error, skipping: %v", err)
+			continue
 		}
 
-		// Now map sites into devices.
-		for _, cd := range api.devices {
-			for _, d := range cd {
-				if ds, ok := siteMap[d.Site.ID]; ok {
+		for _, site := range r.GetSites() {
+			ls := site
+			siteMap[site.GetId()] = ls
+			num++
+		}
+	}
+
+	// Now map sites into devices.
+	for _, cd := range api.devices {
+		for _, d := range cd {
+			if d.Site != nil {
+				if ds, ok := siteMap[d.Site.GetId()]; ok {
 					d.FullSite = ds
 					mapped++
 				}
@@ -330,7 +295,7 @@ func (api *KentikApi) getSites(ctx context.Context) error {
 	}
 
 	api.setTime = time.Now()
-	api.Infof("Loaded %d Kentik sites via API in %v, mapped to %d devices", num, api.setTime.Sub(stime), mapped)
+	api.Infof("Loaded %d Kentik sites via GRPC in %v, mapped to %d devices", num, api.setTime.Sub(stime), mapped)
 	return nil
 }
 
@@ -351,7 +316,7 @@ func NewKentikApiFromLocalDevices(localDevices map[string]*kt.Device, log logger
 			resDev[device.CompanyID] = map[kt.DeviceID]*kt.Device{}
 		}
 		device.Interfaces = map[kt.IfaceID]kt.Interface{}
-		for _, intf := range device.AllInterfaces {
+		for _, intf := range device.Interfaces {
 			device.Interfaces[intf.SnmpID] = intf
 		}
 		resDev[device.CompanyID][device.ID] = device
@@ -372,11 +337,7 @@ func (api *KentikApi) manageCache(ctx context.Context) {
 	for {
 		select {
 		case _ = <-checkTicker.C:
-			err := api.getDevices(ctx)
-			if err != nil {
-				api.Errorf("Cannot get API devices: %v", err)
-			}
-			err = api.getSynthInfo(ctx)
+			err := api.getSynthAndDeviceInfo(ctx)
 			if err != nil {
 				api.Errorf("Cannot get API synth: %v", err)
 			}
@@ -388,7 +349,29 @@ func (api *KentikApi) manageCache(ctx context.Context) {
 	}
 }
 
-func (api *KentikApi) connectSynth(ctxIn context.Context) error {
+// clientKeepAlive maintains active gRPC connections with the Kentik API Gateway,
+// even during periods of no application traffic. This is primarily to prevent
+// proxies from terminating idle connections, a common issue for agents deployed
+// behind certain customer network configurations. Configuring this for all agents
+// is harmless and recommended.
+//
+// Note: The API Gateway directly responds to these keep-alive pings and does
+// not forward them to the backend API. Consequently, the gRPC server-side
+// `keepalive.EnforcementPolicy` (e.g., from `grpc-go/keepalive/keepalive.go`)
+// will not function as expected for these client-initiated pings, as its
+// enforcement applies between the API Gateway and the actual API.
+//
+// See https://github.com/grpc/grpc-go/blob/v1.62.0/keepalive/keepalive.go#L77
+// Copied from https://github.com/kentik/kagent
+func (api *KentikApi) getClientKeepAlive() keepalive.ClientParameters {
+	return keepalive.ClientParameters{
+		Time:                30 * time.Second, // send pings every 30 seconds if there is no activity
+		Timeout:             api.apiTimeout,   // wait KENTIK_API_TIMEOUT or default 60 seconds for ping ack before considering the connection dead
+		PermitWithoutStream: true,             // send pings even without active streams
+	}
+}
+
+func (api *KentikApi) connectSynthAndLookup(ctxIn context.Context) error {
 	ctx, cancel := context.WithTimeout(ctxIn, api.apiTimeout)
 	defer cancel()
 
@@ -403,7 +386,15 @@ func (api *KentikApi) connectSynth(ctxIn context.Context) error {
 	}
 
 	api.Infof("Connecting to API server at %s", address)
-	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithTransportCredentials(creds))
+	maxMsgSize := 50 * 1024 * 1024 // 50 MB
+	opts := []grpc.DialOption{
+		grpc.WithUserAgent(userAgent()),
+		grpc.WithKeepaliveParams(api.getClientKeepAlive()),
+		grpc.WithTransportCredentials(creds),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
+	}
+
+	conn, err := grpc.NewClient(address, opts...)
 	if err != nil {
 		return err
 	}
@@ -412,10 +403,28 @@ func (api *KentikApi) connectSynth(ctxIn context.Context) error {
 	api.Infof("Connected to Synth API server at %s", address)
 	api.synClient = client
 
-	return api.getSynthInfo(ctx)
+	clientLookup := tagging.NewEnumerationsAdminServiceClient(conn)
+	api.Infof("Connected to Tag Enum Lookup API server at %s", address)
+	api.tagLookupClient = clientLookup
+
+	deviceLookup := devicepb.NewDeviceServiceClient(conn)
+	api.Infof("Connected to Device Lookup API server at %s", address)
+	api.deviceClient = deviceLookup
+
+	siteLookup := sitepb.NewSiteServiceClient(conn)
+	api.Infof("Connected to Site Lookup API server at %s", address)
+	api.siteClient = siteLookup
+
+	if api.lazyLoadInts {
+		interfaceLookup := interfacepb.NewInterfaceServiceClient(conn)
+		api.Infof("Connected to Interface Lookup API server at %s", address)
+		api.interfaceClient = interfaceLookup
+	}
+
+	return api.getSynthAndDeviceInfo(ctx)
 }
 
-func (api *KentikApi) getSynthInfo(ctx context.Context) error {
+func (api *KentikApi) getSynthAndDeviceInfo(ctx context.Context) error {
 	api.mux.Lock() // Guard this function totally.
 	defer api.mux.Unlock()
 	api.lastSynth = time.Now()
@@ -433,6 +442,10 @@ func (api *KentikApi) getSynthInfo(ctx context.Context) error {
 		lt := &synthetics.ListTestsRequest{}
 		r, err := api.synClient.ListTests(ctxo, lt)
 		if err != nil {
+			if status.Code(err) == codes.Unimplemented {
+				api.Warnf("Synthetics ListTests endpoint not implemented (deprecated API); skipping.")
+				return nil
+			}
 			return err
 		}
 
@@ -465,6 +478,102 @@ func (api *KentikApi) getSynthInfo(ctx context.Context) error {
 	api.synTests = synTests
 	api.Infof("Loaded %d Kentik Tests and %d Agents Total via API", len(api.synTests), len(api.synAgents))
 
+	return api.getDeviceInfoNew(ctx)
+}
+
+func (api *KentikApi) loadCustoms(ctxo context.Context, deviceId string, dev *kt.Device) error {
+	api.Debugf("Loading customs for %s", deviceId)
+	lt := &devicepb.GetDeviceRequest{
+		Query: &devicepb.DeviceQuery{NoCustomColumns: false},
+		Id:    deviceId,
+	}
+	r, err := api.deviceClient.GetDevice(ctxo, lt)
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			api.Warnf("Device GetDevice endpoint not implemented (deprecated API); skipping.")
+			return nil
+		}
+		return err
+	}
+
+	dev.AddCustoms(r.GetDevice())
+
+	return nil
+}
+
+func (api *KentikApi) getDeviceInfoNew(ctx context.Context) error {
+
+	stime := time.Now()
+	resDev := map[kt.Cid]kt.Devices{}
+	num := 0
+	deviceIds := []string{}
+
+	for _, info := range api.config.KentikCreds {
+		md := metadata.New(map[string]string{
+			"X-CH-Auth-Email":     info.APIEmail,
+			"X-CH-Auth-API-Token": info.APIToken,
+		})
+		ctxo := metadata.NewOutgoingContext(ctx, md)
+
+		lt := &devicepb.ListDevicesRequest{
+			Query: &devicepb.DeviceQuery{NoCustomColumns: !api.fullLoadCustoms},
+		}
+		r, err := api.deviceClient.ListDevices(ctxo, lt)
+		if err != nil {
+			if status.Code(err) == codes.Unimplemented {
+				api.Warnf("Device ListDevices endpoint not implemented (deprecated API); skipping.")
+				return nil
+			}
+			return err
+		}
+
+		for _, device := range r.GetDevices() {
+			dev, err := kt.MapDeviceDetailedToDevice(device)
+			if err != nil {
+				api.Debugf("skipping device %s, not valid", device.GetDeviceName())
+				continue
+			}
+			if _, ok := resDev[dev.CompanyID]; !ok {
+				resDev[dev.CompanyID] = map[kt.DeviceID]*kt.Device{}
+			}
+
+			deviceIds = append(deviceIds, device.Id)
+			resDev[dev.CompanyID][dev.ID] = dev
+			num++
+		}
+
+		api.Infof("Loaded %d Kentik Devices via GRPC for %s", len(r.GetDevices()), info.APIEmail)
+	}
+
+	api.devices = resDev
+	api.setTime = time.Now()
+	api.Infof("Loaded %d Kentik Devices total via GRPC in %v", num, api.setTime.Sub(stime))
+
+	// Now pull in site info for these devices.
+	err := api.getSites(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (api *KentikApi) getInterfaces(ctx context.Context, deviceId string, dev *kt.Device) error {
+
+	api.Debugf("Loading interfaces for %s", deviceId)
+	lt := &interfacepb.ListInterfaceRequest{
+		Filters: &interfacepb.InterfaceFilter{DeviceIds: []string{deviceId}, Text: api.interfaceFilterText},
+	}
+	r, err := api.interfaceClient.ListInterface(ctx, lt)
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			api.Warnf("Interface ListInterface endpoint not implemented (deprecated API); skipping.")
+			return nil
+		}
+		return err
+	}
+
+	dev.AddInterfaces(r.GetInterfaces())
 	return nil
 }
 
@@ -532,10 +641,9 @@ func (api *KentikApi) createDevice(ctx context.Context, create *deviceCreate, ur
 		return err
 	}
 
-	userAgentString := USER_AGENT_BASE
 	req.Header.Add(API_EMAIL_HEADER, api.config.KentikCreds[0].APIEmail)
 	req.Header.Add(API_PASSWORD_HEADER, api.config.KentikCreds[0].APIToken)
-	req.Header.Add(HTTP_USER_AGENT, userAgentString+" AGENT")
+	req.Header.Add(HTTP_USER_AGENT, userAgent())
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := api.client.Do(req)
@@ -574,4 +682,49 @@ type deviceCreate struct {
 	Region      string   `json:"cloud_region,omitempty"`
 	Zone        string   `json:"cloud_zone,omitempty"`
 	MinSnmp     bool     `json:"minimize_snmp"`
+}
+
+func userAgent(comments ...string) string {
+	comments = append([]string{runtime.GOOS, runtime.GOARCH}, comments...)
+	return fmt.Sprintf("kentik/ktranslate/%s (%s)", version.Version.Version, strings.Join(comments, "; "))
+}
+
+func (api *KentikApi) LookupEnumerationValues(ctx context.Context, enums map[uint32]bool) (map[uint32]string, error) {
+	if api.tagLookupClient == nil {
+		return nil, nil
+	}
+
+	lt := &tagging.FetchValuesByIdsRequest{
+		Ids: make([]string, len(enums)),
+	}
+
+	next := 0
+	for e, _ := range enums {
+		lt.Ids[next] = strconv.FormatUint(uint64(e), 10)
+		next++
+	}
+
+	res := map[uint32]string{}
+
+	for _, info := range api.config.KentikCreds {
+		md := metadata.New(map[string]string{
+			"X-CH-Auth-Email":     info.APIEmail,
+			"X-CH-Auth-API-Token": info.APIToken,
+		})
+		ctxo := metadata.NewOutgoingContext(ctx, md)
+
+		r, err := api.tagLookupClient.FetchValuesByIds(ctxo, lt)
+		if err != nil {
+			return nil, err
+		}
+
+		for e, s := range r.GetValues() {
+			ival, err := strconv.ParseUint(e, 10, 32)
+			if err == nil {
+				res[uint32(ival)] = s
+			}
+		}
+	}
+
+	return res, nil
 }

@@ -1,9 +1,11 @@
 package ktranslate
 
 import (
-	"os"
-
+	"context"
 	yaml "gopkg.in/yaml.v3"
+	"io/fs"
+
+	snmp_util "github.com/kentik/ktranslate/pkg/inputs/snmp/util"
 )
 
 const (
@@ -42,11 +44,21 @@ type ElasticFormatConfig struct {
 
 // OtelFormatConfig is the config for the otel format
 type OtelFormatConfig struct {
-	Endpoint   string
-	Protocol   string
-	ClientCert string
-	ClientKey  string
-	RootCA     string
+	Endpoint      string
+	Protocol      string
+	ClientCert    string
+	ClientKey     string
+	RootCA        string
+	NoBlockExport bool
+}
+
+// RedisFormatConfig is the config for the redis format
+type RedisFormatConfig struct {
+	RedisAddr     string
+	RedisPassword string
+	RedisDB       int
+	KeyPrefix     string
+	KeyTTLSeconds int
 }
 
 // SnmpFormatConfig is the config for the snmp format
@@ -133,11 +145,31 @@ type HTTPSinkConfig struct {
 type KafkaSinkConfig struct {
 	Topic            string
 	BootstrapServers string
-	TlsConfig        string
-	SaslUser         string
-	SaslPass         string
-	SaslMech         string
-	SkipVerify       bool
+	// Security settings
+	SecurityProtocol string // PLAINTEXT, SASL_PLAINTEXT, SASL_SSL, SSL
+	SASLMechanism    string // PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI (Kerberos), OAUTHBEARER
+	SASLUsername     string
+	SASLPassword     string
+	// Kerberos (GSSAPI) settings
+	KerberosServiceName     string // Usually "kafka"
+	KerberosRealm           string
+	KerberosConfigPath      string // Path to krb5.conf
+	KerberosKeytabPath      string // Path to keytab file
+	KerberosPrincipal       string // Kerberos principal
+	KerberosDisablePAFXFAST bool   // Disable PA-FX-FAST
+	// SSL/TLS settings
+	SSLCAFile   string // CA certificate file
+	SSLCertFile string // Client certificate file
+	SSLKeyFile  string // Client private key file
+	SSLInsecure bool   // Skip certificate verification
+	// Producer settings
+	RequiredAcks    int    // 0=NoResponse, 1=WaitForLocal, -1=WaitForAll
+	Compression     string // none, gzip, snappy, lz4, zstd
+	MaxMessageBytes int    // Maximum message size
+	RetryMax        int    // Maximum retries
+	FlushFrequency  int    // Flush frequency in milliseconds
+	FlushMessages   int    // Flush after this many messages
+	FlushBytes      int    // Flush after this many bytes
 }
 
 // KentikSinkConfig is the config for the Kentik sink
@@ -152,10 +184,13 @@ type DDogSinkConfig struct {
 
 // RollupConfig is the config for rollups
 type RollupConfig struct {
-	JoinKey       string
-	TopK          int
-	Formats       []string
-	KeepUndefined bool
+	JoinKey          string
+	TopK             int
+	Formats          []string
+	KeepUndefined    bool
+	MaxMemoryMB      int
+	MaxKeys          int
+	EmergencyCleanup bool
 }
 
 // KMuxConfig is the config for the mux server
@@ -253,6 +288,12 @@ type ConfigManager struct {
 	PollTimeSec int
 }
 
+// StitchConfig is the config on how to manage stitching flows together
+type StitchConfig struct {
+	Enable bool
+	BufLen int
+}
+
 // Config is the ktranslate configuration
 type Config struct {
 	// ktranslate
@@ -306,6 +347,8 @@ type Config struct {
 	InfluxDBFormat *InfluxDBFormatConfig
 	// pkg/formats/otel
 	OtelFormat *OtelFormatConfig
+	// pkg/formats/redis
+	RedisFormat *RedisFormatConfig
 	// pkg/formats/snmp
 	SnmpFormat *SnmpFormatConfig
 	// pkg/formats/elasticsearch
@@ -359,6 +402,8 @@ type Config struct {
 	FlowInput *FlowInputConfig
 	// pkg/config
 	CfgManager *ConfigManager
+	// pkg/stitch
+	Lilo *StitchConfig
 }
 
 // DefaultConfig returns a ktranslate configuration with defaults applied
@@ -402,11 +447,19 @@ func DefaultConfig() *Config {
 			FlowsNeeded:          10,
 		},
 		OtelFormat: &OtelFormatConfig{
-			Endpoint:   "",
-			Protocol:   "stdout",
-			ClientKey:  "",
-			ClientCert: "",
-			RootCA:     "",
+			Endpoint:      "",
+			Protocol:      "stdout",
+			ClientKey:     "",
+			ClientCert:    "",
+			RootCA:        "",
+			NoBlockExport: false,
+		},
+		RedisFormat: &RedisFormatConfig{
+			RedisAddr:     "localhost:6379",
+			RedisPassword: "",
+			RedisDB:       0,
+			KeyPrefix:     "",
+			KeyTTLSeconds: 60,
 		},
 		ElasticFormat: &ElasticFormatConfig{
 			Action: "index",
@@ -473,22 +526,41 @@ func DefaultConfig() *Config {
 			TimeoutInSeconds:   30,
 		},
 		KafkaSink: &KafkaSinkConfig{
-			Topic:            "",
-			BootstrapServers: "",
-			TlsConfig:        "",
-			SaslUser:         "",
-			SaslPass:         "",
-			SaslMech:         "",
-			SkipVerify:       false,
+			Topic:                   "",
+			BootstrapServers:        "",
+			SecurityProtocol:        "PLAINTEXT",
+			SASLMechanism:           "",
+			SASLUsername:            "",
+			SASLPassword:            "",
+			KerberosServiceName:     "kafka",
+			KerberosRealm:           "",
+			KerberosConfigPath:      "/etc/krb5.conf",
+			KerberosKeytabPath:      "",
+			KerberosPrincipal:       "",
+			KerberosDisablePAFXFAST: false,
+			SSLCAFile:               "",
+			SSLCertFile:             "",
+			SSLKeyFile:              "",
+			SSLInsecure:             false,
+			RequiredAcks:            1,
+			Compression:             "none",
+			MaxMessageBytes:         1000000,
+			RetryMax:                3,
+			FlushFrequency:          100,
+			FlushMessages:           100,
+			FlushBytes:              64 * 1024,
 		},
 		KentikSink: &KentikSinkConfig{
 			RelayURL: "",
 		},
 		Rollup: &RollupConfig{
-			JoinKey:       "^",
-			TopK:          10,
-			Formats:       []string{},
-			KeepUndefined: false,
+			JoinKey:          "^",
+			TopK:             10,
+			Formats:          []string{},
+			KeepUndefined:    false,
+			MaxMemoryMB:      100,
+			MaxKeys:          5000,
+			EmergencyCleanup: true,
 		},
 		KMux: &KMuxConfig{
 			Dir: ".",
@@ -560,19 +632,22 @@ func DefaultConfig() *Config {
 			ConfigImpl:  "",
 			PollTimeSec: 1200,
 		},
+		Lilo: &StitchConfig{
+			Enable: false,
+			BufLen: 10000,
+		},
 	}
 }
 
 // LoadConfig returns a ktranslate configuration from the specified path
-func LoadConfig(configPath string) (*Config, error) {
-	f, err := os.Open(configPath)
+func LoadConfig(ctx context.Context, configPath string) (*Config, error) {
+	confBytes, err := snmp_util.LoadFile(ctx, configPath)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
-	var cfg *Config
-	if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
+	cfg := Config{}
+	if err := yaml.Unmarshal(confBytes, &cfg); err != nil {
 		return nil, err
 	}
 
@@ -580,20 +655,16 @@ func LoadConfig(configPath string) (*Config, error) {
 		cfg.MaxFlowsPerMessage = MaxNetflowsPerMessage
 	}
 
-	return cfg, nil
+	return &cfg, nil
 }
 
 // SaveConfig saves the ktranslate configuration to the specified path
 func (c *Config) SaveConfig() error {
-	f, err := os.Create(c.Server.CfgPath)
+	t, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	if err := yaml.NewEncoder(f).Encode(c); err != nil {
-		return err
-	}
-
-	return nil
+	permissions := fs.FileMode(0644)
+	return snmp_util.WriteFile(context.Background(), c.Server.CfgPath, t, permissions)
 }

@@ -32,6 +32,7 @@ const (
 	REGION_US         = "us"
 	REGION_GOV        = "gov"
 	REGION_US_STAGING = "us_stage"
+	REGION_JP         = "jp"
 )
 
 var (
@@ -64,13 +65,18 @@ var (
 			"metrics": "https://staging-metric-api.newrelic.com/metric/v1",
 			"logs":    "https://staging-log-api.newrelic.com/log/v1",
 		},
+		REGION_JP: map[string]string{
+			"events":  "https://insights-collector.jp.nr-data.net/v1/accounts/%s/events",
+			"metrics": "https://metric-api.jp.nr-data.net/metric/v1",
+			"logs":    "https://log-api.jp.nr-data.net/log/v1",
+		},
 	}
 )
 
 func init() {
 	flag.StringVar(&nrAccount, "nr_account_id", kt.LookupEnvString("NR_ACCOUNT_ID", ""), "If set, sends flow to New Relic")
 	flag.BoolVar(&estimateSize, "nr_estimate_only", false, "If true, record size of inputs to NR but don't actually send anything")
-	flag.StringVar(&nrRegion, "nr_region", kt.LookupEnvString("NR_REGION", ""), "NR Region to use. US|EU")
+	flag.StringVar(&nrRegion, "nr_region", kt.LookupEnvString("NR_REGION", ""), "NR Region to use. US|EU|GOV|JP")
 	flag.BoolVar(&nrCheckJson, "nr_check_json", false, "Verify body is valid json before sending on")
 }
 
@@ -137,12 +143,12 @@ func (s *NRSink) Init(ctx context.Context, format formats.Format, compression kt
 	rval := strings.ToLower(s.config.Region)
 	switch rval {
 	case "": // noop
-	case REGION_US, REGION_EU, REGION_GOV, REGION_US_STAGING:
+	case REGION_US, REGION_EU, REGION_GOV, REGION_US_STAGING, REGION_JP:
 		NrUrl = regions[rval]["events"]
 		NrMetricsUrl = regions[rval]["metrics"]
 		s.NRUrlLog = regions[rval]["logs"]
 	default:
-		return fmt.Errorf("You used an unsupported New Relic One region: %s. The possible values are EU, US, GOV and US_STAGE.", s.config.Region)
+		return fmt.Errorf("You used an unsupported New Relic One region: %s. The possible values are EU, US, GOV, JP and US_STAGE.", s.config.Region)
 	}
 
 	s.NRUrl = NrUrl
@@ -270,6 +276,14 @@ func (s *NRSink) sendNR(ctx context.Context, payload *kt.Output, url string) {
 
 	s.metrics.DeliveryMetrics.Mark(1) // Compression will effect this, but we can do our best.
 	if s.estimate {                   // here, just mark how much we would have sent.
+		uncompressedSize := len(payload.Body)
+		// Always calculate gzip size for estimate since NR uses compression
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		gz.Write(payload.Body)
+		gz.Close()
+		compressedSize := buf.Len()
+		s.Infof("NR Estimate: would send %d bytes (compressed: %d bytes, ratio: %.1fx) to %s", uncompressedSize, compressedSize, float64(uncompressedSize)/float64(compressedSize), url)
 		return
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payload.Body))
@@ -405,12 +419,12 @@ func (s *NRSink) sendLogBatch(ctx context.Context, logs []string) {
 			ls_syslogs.Logs = append(ls_syslogs.Logs, log{
 				Timestamp: ts,
 				Message:   l,
-				})
-		}else{
+			})
+		} else {
 			ls_healthlogs.Logs = append(ls_healthlogs.Logs, log{
 				Timestamp: ts,
 				Message:   l,
-				})
+			})
 		}
 	}
 

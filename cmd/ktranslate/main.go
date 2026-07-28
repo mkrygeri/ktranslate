@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -9,10 +10,10 @@ import (
 	"time"
 
 	"github.com/kentik/ktranslate"
-	"github.com/kentik/ktranslate/cmd/version"
 	"github.com/kentik/ktranslate/pkg/cat"
 	"github.com/kentik/ktranslate/pkg/filter"
 	"github.com/kentik/ktranslate/pkg/kt"
+	"github.com/kentik/ktranslate/pkg/version"
 
 	"github.com/imdario/mergo"
 	go_metrics "github.com/kentik/go-metrics"
@@ -127,7 +128,7 @@ func main() {
 
 	// if config specified, merge config
 	if v := *configFilePath; v != "" {
-		ktCfg, err := ktranslate.LoadConfig(v)
+		ktCfg, err := ktranslate.LoadConfig(context.Background(), v)
 		if err != nil {
 			panic(err)
 		}
@@ -455,6 +456,34 @@ func applyFlags(cfg *ktranslate.Config) error {
 				cfg.OtelFormat.ClientKey = val
 			case "otel.root_ca":
 				cfg.OtelFormat.RootCA = val
+			case "otel.no_block":
+				v, err := strconv.ParseBool(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.OtelFormat.NoBlockExport = v
+				// pkg/formats/redis
+			case "redis.addr":
+				cfg.RedisFormat.RedisAddr = val
+			case "redis.password":
+				cfg.RedisFormat.RedisPassword = val
+			case "redis.db":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.RedisFormat.RedisDB = v
+			case "redis.ttl.sec":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.RedisFormat.KeyTTLSeconds = v
+			case "redis.key_prefix":
+				cfg.RedisFormat.KeyPrefix = val
 			// pkg/formats/elasticsearch
 			case "elastic.action":
 				cfg.ElasticFormat.Action = val
@@ -598,21 +627,88 @@ func applyFlags(cfg *ktranslate.Config) error {
 				cfg.KafkaSink.Topic = val
 			case "bootstrap.servers":
 				cfg.KafkaSink.BootstrapServers = val
-			case "kafka.tls.config":
-				cfg.KafkaSink.TlsConfig = val
-			case "kafka.sasl.user":
-				cfg.KafkaSink.SaslUser = val
-			case "kafka.sasl.password":
-				cfg.KafkaSink.SaslPass = val
-			case "kafka.sasl.mechanism":
-				cfg.KafkaSink.SaslMech = val
-			case "kafka.tls.skip.verify":
+			case "kafka_security_protocol":
+				cfg.KafkaSink.SecurityProtocol = val
+			case "kafka_sasl_mechanism":
+				cfg.KafkaSink.SASLMechanism = val
+			case "kafka_sasl_username":
+				cfg.KafkaSink.SASLUsername = val
+			case "kafka_sasl_password":
+				cfg.KafkaSink.SASLPassword = val
+			case "kafka_kerberos_service_name":
+				cfg.KafkaSink.KerberosServiceName = val
+			case "kafka_kerberos_realm":
+				cfg.KafkaSink.KerberosRealm = val
+			case "kafka_kerberos_config_path":
+				cfg.KafkaSink.KerberosConfigPath = val
+			case "kafka_kerberos_keytab_path":
+				cfg.KafkaSink.KerberosKeytabPath = val
+			case "kafka_kerberos_principal":
+				cfg.KafkaSink.KerberosPrincipal = val
+			case "kafka_kerberos_disable_pafx_fast":
 				v, err := strconv.ParseBool(val)
 				if err != nil {
 					errCh <- err
 					return
 				}
-				cfg.KafkaSink.SkipVerify = v
+				cfg.KafkaSink.KerberosDisablePAFXFAST = v
+			case "kafka_ssl_ca_file":
+				cfg.KafkaSink.SSLCAFile = val
+			case "kafka_ssl_cert_file":
+				cfg.KafkaSink.SSLCertFile = val
+			case "kafka_ssl_key_file":
+				cfg.KafkaSink.SSLKeyFile = val
+			case "kafka_ssl_insecure":
+				v, err := strconv.ParseBool(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.SSLInsecure = v
+			case "kafka_required_acks":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.RequiredAcks = v
+			case "kafka_compression":
+				cfg.KafkaSink.Compression = val
+			case "kafka_max_message_bytes":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.MaxMessageBytes = v
+			case "kafka_retry_max":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.RetryMax = v
+			case "kafka_flush_frequency":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.FlushFrequency = v
+			case "kafka_flush_messages":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.FlushMessages = v
+			case "kafka_flush_bytes":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.KafkaSink.FlushBytes = v
 			// pkg/sinks/kentik
 			case "kentik_relay_url":
 				cfg.KentikSink.RelayURL = val
@@ -814,6 +910,20 @@ func applyFlags(cfg *ktranslate.Config) error {
 				cfg.FlowInput.MappingFile = val
 			case "config_provider":
 				cfg.CfgManager.ConfigImpl = val
+			case "stitch.buffer.len":
+				v, err := strconv.Atoi(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Lilo.BufLen = v
+			case "stitch.enable":
+				v, err := strconv.ParseBool(val)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				cfg.Lilo.Enable = v
 			// configs
 			case "config", "generate-config":
 				// ignore

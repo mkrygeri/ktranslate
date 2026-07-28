@@ -33,7 +33,7 @@ else \
 fi
 
 # main image
-FROM alpine:3.23
+FROM alpine:3.23.3
 RUN apk add -U --no-cache ca-certificates libpcap
 RUN addgroup -g 1000 ktranslate && \
 	adduser -D -u 1000 -G ktranslate -H -h /etc/ktranslate ktranslate
@@ -64,4 +64,4 @@ RUN setcap cap_net_raw=+ep /usr/local/bin/ktranslate
 EXPOSE 8082
 
 USER ktranslate
-ENTRYPOINT ["ktranslate", "-listen", "off", "-mapping", "/etc/ktranslate/config.json", "-geo", "/etc/ktranslate/GeoLite2-Country.mmdb", "-udrs", "/etc/ktranslate/udr.csv", "-api_devices", "/etc/ktranslate/devices.json", "-asn", "/etc/ktranslate/GeoLite2-ASN.mmdb", "-log_level", "info", "-geo_region_map", "/etc/ktranslate/ch_region_mapping.csv.gz", "-geo_city_map", "/etc/ktranslate/ch_city_mapping.csv.gz", "-tag_map_type", "file"]
+ENTRYPOINT ["ktranslate", "-listen", "off", "-mapping", "/etc/ktranslate/config.json", "-geo", "/etc/ktranslate/GeoLite2-Country.mmdb", "-udrs", "/etc/ktranslate/udr.csv", "-api_devices", "/etc/ktranslate/devices.json", "-asn", "/etc/ktranslate/GeoLite2-ASN.mmdb", "-log_level", "info", "-geo_region_map", "/etc/ktranslate/ch_region_mapping.csv.gz", "-geo_city_map", "/etc/ktranslate/ch_city_mapping.csv.gz"]

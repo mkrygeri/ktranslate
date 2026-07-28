@@ -54,6 +54,12 @@ func Discover(ctx context.Context, log logger.ContextL, pollDuration time.Durati
 		return nil, fmt.Errorf("You need to specify a global section and mib profile directory: %v.", conf)
 	}
 
+	// Make sure there's at least one thread to process with.
+	if conf.Disco.Threads == 0 {
+		conf.Disco.Threads = 4
+		log.Warnf("SNMP Discovery, defaulting threads to %d from 0.", conf.Disco.Threads)
+	}
+
 	if v := cfg.OutputFile; v != "" { // If we want to write somewhere else, swap the output file in here.
 		err := initOutputFile(ctx, log, v, conf, snmpFile)
 		if err != nil {
@@ -169,7 +175,7 @@ func runScanCheckDisco(ctx context.Context, ctl chan bool, foundDevices map[stri
 				}
 				wg.Add(1)
 				posit := fmt.Sprintf("%d/%d)", i+1, len(results))
-				go doubleCheckHost(result, timeout, ctl, &mux, &wg, foundDevices, mdb, conf, posit, kentikDevices, log)
+				go doubleCheckHost(ctx, result, timeout, ctl, &mux, &wg, foundDevices, mdb, conf, posit, kentikDevices, log)
 			}
 		}
 		wg.Wait()
@@ -235,7 +241,7 @@ func RunDiscoOnTimer(ctx context.Context, c chan os.Signal, log logger.ContextL,
 	}
 }
 
-func doubleCheckHost(result scan.Result, timeout time.Duration, ctl chan bool, mux *sync.RWMutex, wg *sync.WaitGroup,
+func doubleCheckHost(ctx context.Context, result scan.Result, timeout time.Duration, ctl chan bool, mux *sync.RWMutex, wg *sync.WaitGroup,
 	foundDevices map[string]*kt.SnmpDeviceConfig, mdb *mibs.MibDB, conf *kt.SnmpConfig, posit string, kentikDevices map[string]string, log logger.ContextL) {
 
 	// Get the token to allow us to run.
@@ -279,7 +285,7 @@ func doubleCheckHost(result scan.Result, timeout time.Duration, ctl chan bool, m
 				log.Warnf("There was an error when starting SNMP interface component -- %v.", err)
 				return
 			}
-			md, err = metadata.GetBasicDeviceMetadata(log, serv)
+			md, err = metadata.GetBasicDeviceMetadata(ctx, log, serv, &device)
 			if err != nil {
 				log.Warnf("Cannot get device metadata on %s: %v. Check for correct snmp credentials.", result.Host.String(), err)
 				continue
@@ -312,7 +318,7 @@ func doubleCheckHost(result scan.Result, timeout time.Duration, ctl chan bool, m
 					log.Warnf("There was an error when starting SNMP interface component -- %v.", err)
 					return
 				}
-				md, err = metadata.GetBasicDeviceMetadata(log, serv)
+				md, err = metadata.GetBasicDeviceMetadata(ctx, log, serv, &device)
 				if err != nil {
 					log.Warnf("Cannot get device metadata on %s: %v. Check for correct snmp credentials.", result.Host.String(), err)
 					continue

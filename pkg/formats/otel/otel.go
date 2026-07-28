@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/stdr"
+	go_metrics "github.com/kentik/go-metrics"
 	"github.com/kentik/ktranslate"
 	"github.com/kentik/ktranslate/pkg/eggs/logger"
 	"github.com/kentik/ktranslate/pkg/formats/util"
@@ -40,6 +41,9 @@ type OtelFormat struct {
 	inputs       map[string]chan OtelData
 	trapLog      *OtelLogger
 	logTee       chan string
+	metrics      *OtelMetrics
+	warnFull     map[string]bool
+	registry     go_metrics.Registry
 }
 
 const (
@@ -47,12 +51,13 @@ const (
 )
 
 var (
-	endpoint   string
-	protocol   string
-	otelm      metric.Meter
-	clientCert string
-	clientKey  string
-	rootCA     string
+	endpoint      string
+	protocol      string
+	otelm         metric.Meter
+	clientCert    string
+	clientKey     string
+	rootCA        string
+	noBlockExport bool
 )
 
 func init() {
@@ -61,6 +66,11 @@ func init() {
 	flag.StringVar(&clientCert, "otel.tls_cert", "", "Load TLS client cert from file.")
 	flag.StringVar(&clientKey, "otel.tls_key", "", "Load TLS client key from file.")
 	flag.StringVar(&rootCA, "otel.root_ca", "", "Load TLS root CA from file.")
+	flag.BoolVar(&noBlockExport, "otel.no_block", false, "If set, drop metrics when the sending chan is full.")
+}
+
+type OtelMetrics struct {
+	ExportDrops map[string]go_metrics.Meter
 }
 
 /*
@@ -70,7 +80,7 @@ Some usefule env vars to think about setting:
 * OTEL_METRIC_EXPORT_INTERVAL=30000 -- time in ms to export. Default 60,000 (1 min).
 * OTEL_EXPORTER_OTLP_COMPRESSION=gzip -- turn on gzip compression.
 */
-func NewFormat(ctx context.Context, log logger.Underlying, cfg *ktranslate.OtelFormatConfig, logTee chan string) (*OtelFormat, error) {
+func NewFormat(ctx context.Context, log logger.Underlying, cfg *ktranslate.OtelFormatConfig, logTee chan string, registry go_metrics.Registry) (*OtelFormat, error) {
 	jf := &OtelFormat{
 		ContextL:     logger.NewContextLFromUnderlying(logger.SContext{S: "otel"}, log),
 		lastMetadata: map[string]*kt.LastMetadata{},
@@ -80,6 +90,11 @@ func NewFormat(ctx context.Context, log logger.Underlying, cfg *ktranslate.OtelF
 		config:       cfg,
 		inputs:       map[string]chan OtelData{},
 		logTee:       logTee,
+		warnFull:     map[string]bool{},
+		registry:     registry,
+		metrics: &OtelMetrics{
+			ExportDrops: map[string]go_metrics.Meter{},
+		},
 	}
 
 	var tlsC *tls.Config = nil
@@ -165,7 +180,7 @@ func NewFormat(ctx context.Context, log logger.Underlying, cfg *ktranslate.OtelF
 	jf.trapLog = ol
 
 	otelm = otel.Meter("ktranslate")
-	jf.Infof("Running exporting via %s to %s", cfg.Protocol, cfg.Endpoint)
+	jf.Infof("Running exporting via %s to %s. NoBlockExport: %v", cfg.Protocol, cfg.Endpoint, cfg.NoBlockExport)
 
 	return jf, nil
 }
@@ -178,6 +193,10 @@ func (f *OtelFormat) To(msgs []*kt.JCHF, serBuf []byte) (*kt.Output, error) {
 
 	if len(res) == 0 {
 		return nil, nil
+	}
+
+	for i := range res {
+		res[i].Name = kt.SanitizeUTF8(res[i].Name)
 	}
 
 	f.mux.RLock()
@@ -211,7 +230,38 @@ func (f *OtelFormat) To(msgs []*kt.JCHF, serBuf []byte) (*kt.Output, error) {
 			f.Infof("Creating otel export for %s", m.Name)
 		}
 		// Save this for later, for the next time the async callback is run.
-		f.inputs[m.Name] <- m
+		ch := f.inputs[m.Name]
+		queueDepth := len(ch)
+		if queueDepth >= CHAN_SLACK {
+			f.Debugf("Channel queue at CHAN_SLACK limit for %s: %d/%d (100%%)", m.Name, queueDepth, CHAN_SLACK)
+		}
+		if f.config.NoBlockExport {
+			select {
+			case ch <- m:
+			default:
+				if !f.warnFull[m.Name] {
+					f.mux.RUnlock()
+					f.mux.Lock()
+					firstWarn := !f.warnFull[m.Name]
+					if firstWarn {
+						f.warnFull[m.Name] = true
+						f.metrics.ExportDrops[m.Name] = go_metrics.GetOrRegisterMeter(fmt.Sprintf("otel_export_drops^name=%s^force=true", m.Name), f.registry)
+					}
+					f.mux.Unlock()
+					f.mux.RLock()
+					if firstWarn {
+						f.Warnf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					} else {
+						f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					}
+					f.metrics.ExportDrops[m.Name].Mark(1)
+				} else {
+					f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+				}
+			}
+		} else {
+			ch <- m
+		}
 	}
 
 	f.mux.RUnlock()
@@ -227,6 +277,10 @@ func (f *OtelFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
 	res := f.toOtelDataRollup(rolls)
 	if len(res) == 0 {
 		return nil, nil
+	}
+
+	for i := range res {
+		res[i].Name = kt.SanitizeUTF8(res[i].Name)
 	}
 
 	f.mux.RLock()
@@ -259,7 +313,38 @@ func (f *OtelFormat) Rollup(rolls []rollup.Rollup) (*kt.Output, error) {
 			f.mux.RLock()
 		}
 		// Save this for later, for the next time the async callback is run.
-		f.inputs[m.Name] <- m
+		ch := f.inputs[m.Name]
+		queueDepth := len(ch)
+		if queueDepth >= CHAN_SLACK {
+			f.Debugf("Channel queue at CHAN_SLACK limit for %s: %d/%d (100%%)", m.Name, queueDepth, CHAN_SLACK)
+		}
+		if f.config.NoBlockExport {
+			select {
+			case ch <- m:
+			default:
+				if !f.warnFull[m.Name] {
+					f.mux.RUnlock()
+					f.mux.Lock()
+					firstWarn := !f.warnFull[m.Name]
+					if firstWarn {
+						f.warnFull[m.Name] = true
+						f.metrics.ExportDrops[m.Name] = go_metrics.GetOrRegisterMeter(fmt.Sprintf("otel_export_drops^name=%s^force=true", m.Name), f.registry)
+					}
+					f.mux.Unlock()
+					f.mux.RLock()
+					if firstWarn {
+						f.Warnf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					} else {
+						f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+					}
+					f.metrics.ExportDrops[m.Name].Mark(1)
+				} else {
+					f.Debugf("OTEL channel full, dropping sample for metric=%s", m.Name)
+				}
+			}
+		} else {
+			ch <- m
+		}
 	}
 
 	f.mux.RUnlock()
@@ -686,22 +771,23 @@ type OtelData struct {
 func (d *OtelData) GetTagValues() attribute.Set {
 	res := make([]attribute.KeyValue, 0, len(d.Tags))
 	for k, v := range d.Tags {
+		key := kt.SanitizeUTF8(k)
 		switch t := v.(type) {
 		case string:
-			res = append(res, attribute.String(k, t))
+			res = append(res, attribute.String(key, kt.SanitizeUTF8(t)))
 		case int64:
-			res = append(res, attribute.Int64(k, t))
+			res = append(res, attribute.Int64(key, t))
 		case int32:
-			res = append(res, attribute.Int64(k, int64(t)))
+			res = append(res, attribute.Int64(key, int64(t)))
 		case float64:
-			res = append(res, attribute.Float64(k, t))
+			res = append(res, attribute.Float64(key, t))
 		case uint32:
-			res = append(res, attribute.Int64(k, int64(t)))
+			res = append(res, attribute.Int64(key, int64(t)))
 		case uint64:
-			res = append(res, attribute.Int64(k, int64(t)))
+			res = append(res, attribute.Int64(key, int64(t)))
 		default:
 			// Convert unknown types to string representation
-			res = append(res, attribute.String(k, fmt.Sprintf("%v", t)))
+			res = append(res, attribute.String(key, kt.SanitizeUTF8(fmt.Sprintf("%v", t))))
 		}
 	}
 	s, _ := attribute.NewSetWithFiltered(res, func(kv attribute.KeyValue) bool { return true })
