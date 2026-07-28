@@ -11,6 +11,7 @@ import (
 	"github.com/kentik/ktranslate/pkg/formats/carbon"
 	"github.com/kentik/ktranslate/pkg/formats/ddog"
 	"github.com/kentik/ktranslate/pkg/formats/elasticsearch"
+	"github.com/kentik/ktranslate/pkg/formats/flowstitch"
 	"github.com/kentik/ktranslate/pkg/formats/influx"
 	"github.com/kentik/ktranslate/pkg/formats/json"
 	"github.com/kentik/ktranslate/pkg/formats/kflow"
@@ -55,6 +56,7 @@ const (
 	FORMAT_SNMP                 = "snmp"
 	FORMAT_PARQUET              = "parquet"
 	FORMAT_REDIS                = "redis"
+	FORMAT_FLOW_STITCH          = "flow_stitch"
 )
 
 func NewFormat(ctx context.Context, format Format, log logger.Underlying, registry go_metrics.Registry, compression kt.Compression, cfg *ktranslate.Config, logTee chan string) (Formatter, error) {
@@ -93,6 +95,8 @@ func NewFormat(ctx context.Context, format Format, log logger.Underlying, regist
 		return parquet.NewFormat(log, compression)
 	case FORMAT_REDIS:
 		return redis.NewFormat(ctx, log, cfg.RedisFormat)
+	case FORMAT_FLOW_STITCH:
+		return flowstitch.NewFormat(log, compression)
 	default:
 		return nil, fmt.Errorf("You used an unsupported format: %v.", format)
 	}

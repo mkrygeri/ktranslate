@@ -25,6 +25,8 @@ type stitchSnapshot struct {
 	TcpFlags      uint32
 	InBytes       uint64
 	InPkts        uint64
+	OutBytes      uint64
+	OutPkts       uint64
 	TcpRetransmit uint32
 	Timestamp     int64
 }
@@ -68,11 +70,13 @@ func (s *Stitcher) Stitch(msg *kt.JCHF) bool {
 	key := msg.GetKey()
 	s.metrics.FlowsIn.Mark(1)
 	if nm, ok := s.cache.GetAndDelete(key); ok {
-		msg.CustomInt["pair_tcp_flags"] = int32(nm.TcpFlags)
-		msg.CustomBigInt["pair_in_bytes"] = int64(nm.InBytes)
-		msg.CustomBigInt["pair_in_pkts"] = int64(nm.InPkts)
-		msg.CustomInt["pair_tcp_rx"] = int32(nm.TcpRetransmit)
-		msg.CustomBigInt["pair_timestamp"] = int64(nm.Timestamp)
+		msg.CustomInt[kt.StitchPairTcpFlags] = int32(nm.TcpFlags)
+		msg.CustomBigInt[kt.StitchPairInBytes] = int64(nm.InBytes)
+		msg.CustomBigInt[kt.StitchPairInPkts] = int64(nm.InPkts)
+		msg.CustomBigInt[kt.StitchPairOutBytes] = int64(nm.OutBytes)
+		msg.CustomBigInt[kt.StitchPairOutPkts] = int64(nm.OutPkts)
+		msg.CustomInt[kt.StitchPairTcpRetransmit] = int32(nm.TcpRetransmit)
+		msg.CustomBigInt[kt.StitchPairTimestamp] = int64(nm.Timestamp)
 		s.metrics.FlowsMatched.Mark(1)
 		return true
 	}
@@ -81,6 +85,8 @@ func (s *Stitcher) Stitch(msg *kt.JCHF) bool {
 		TcpFlags:      msg.TcpFlags,
 		InBytes:       msg.InBytes,
 		InPkts:        msg.InPkts,
+		OutBytes:      msg.OutBytes,
+		OutPkts:       msg.OutPkts,
 		TcpRetransmit: msg.TcpRetransmit,
 		Timestamp:     msg.Timestamp,
 	})

@@ -1,0 +1,50 @@
+[
+  {
+    "timestamp": 1,
+    "company_id": 10,
+    "protocol": "TCP",
+    "src_addr": "10.2.2.1",
+    "dst_addr": "192.168.1.50",
+    "l4_src_port": 34566,
+    "l4_dst_port": 80,
+    "in_bytes": 12121,
+    "in_pkts": 12,
+    "out_bytes": 13,
+    "out_pkts": 1,
+    "src_as": 1111,
+    "src_geo": "US",
+    "device_name": "router1",
+    "input_port": 10,
+    "output_port": 20,
+    "eventType": "KFlow",
+    "custom_str": {
+      "src_endpoint": "10.2.2.1:34566",
+      "dst_endpoint": "192.168.1.50:80",
+      "direction": "ingress"
+    }
+  },
+  {
+    "timestamp": 1,
+    "company_id": 10,
+    "protocol": "TCP",
+    "src_addr": "192.168.1.50",
+    "dst_addr": "10.2.2.1",
+    "l4_src_port": 80,
+    "l4_dst_port": 34566,
+    "in_bytes": 9090,
+    "in_pkts": 8,
+    "out_bytes": 5,
+    "out_pkts": 1,
+    "dst_as": 1111,
+    "dst_geo": "US",
+    "device_name": "router1",
+    "input_port": 20,
+    "output_port": 10,
+    "eventType": "KFlow",
+    "custom_str": {
+      "src_endpoint": "192.168.1.50:80",
+      "dst_endpoint": "10.2.2.1:34566",
+      "direction": "egress"
+    }
+  }
+]

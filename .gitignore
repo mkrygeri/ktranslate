@@ -30,3 +30,6 @@ cmd/version/generated_version.go
 config.yaml
 
 .DS_Store
+principal*
+*key
+*pem

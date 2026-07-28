@@ -37,6 +37,17 @@ const (
 	PrivateIP        = "Private IP"
 	DropMetric       = "DropMetric"
 	AdminStatus      = "if_AdminStatus"
+
+	// Keys the flow stitcher writes onto the matching (second) half of a
+	// conversation to carry the reverse direction's counters. Shared here so
+	// the stitcher and any consuming format agree on the names.
+	StitchPairTcpFlags      = "pair_tcp_flags"
+	StitchPairInBytes       = "pair_in_bytes"
+	StitchPairInPkts        = "pair_in_pkts"
+	StitchPairOutBytes      = "pair_out_bytes"
+	StitchPairOutPkts       = "pair_out_pkts"
+	StitchPairTcpRetransmit = "pair_tcp_rx"
+	StitchPairTimestamp     = "pair_timestamp"
 )
 
 type OutputType string
@@ -337,10 +348,18 @@ func (j *JCHF) SetIFPorts(p IfaceID) *JCHF {
 }
 
 func (j *JCHF) GetKey() string {
+	// 7-tuple stitch key: src endpoint, dst endpoint, protocol, plus the two
+	// interfaces. The device is appended so flows on different exporters never
+	// stitch together. When we flip endpoints for the reverse direction we also
+	// flip the interfaces (a flow's input interface is the reverse flow's output
+	// interface) so both halves of a conversation hash to the same key.
+	device := j.DeviceName
+	inIface := j.InputPort.Itoa()
+	outIface := j.OutputPort.Itoa()
 	if j.L4SrcPort < 32768 { // Guess if this is a ingress or egress flow.
-		return strings.Join([]string{j.CustomStr["src_endpoint"], j.CustomStr["dst_endpoint"], j.Protocol}, "|")
+		return strings.Join([]string{j.CustomStr["src_endpoint"], j.CustomStr["dst_endpoint"], j.Protocol, inIface, outIface, device}, "|")
 	} else {
-		return strings.Join([]string{j.CustomStr["dst_endpoint"], j.CustomStr["src_endpoint"], j.Protocol}, "|")
+		return strings.Join([]string{j.CustomStr["dst_endpoint"], j.CustomStr["src_endpoint"], j.Protocol, outIface, inIface, device}, "|")
 	}
 }
 
