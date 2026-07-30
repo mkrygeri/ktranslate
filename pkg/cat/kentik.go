@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kentik/ktranslate/pkg/kt"
@@ -126,7 +130,15 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			kc.metrics.Errors.Mark(1)
-			kc.log.Errorf("Error handling request: %v", err)
+			// A client that opens a connection and then stalls or goes away is a
+			// client-side problem, not a server error. Log those at debug level so
+			// unsolicited/broken connections (scanners, flaky senders) don't spam
+			// the error log.
+			if isExpectedClientError(err) {
+				kc.log.Debugf("Client connection error handling request: %v", err)
+			} else {
+				kc.log.Errorf("Error handling request: %v", err)
+			}
 			fmt.Fprint(w, "BAD") // nolint: errcheck
 		} else {
 			fmt.Fprint(w, "GOOD") // nolint: errcheck
@@ -266,6 +278,28 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	kc.metrics.Flows.Mark(sent)
 	kc.metrics.DroppedFlows.Mark(dropped)
+}
+
+// isExpectedClientError reports whether err is a routine client-side connection
+// failure (timeout, reset, remote host went away, early EOF) rather than a real
+// server-side problem. These happen constantly on a public listener from
+// scanners and flaky senders, so they are logged at debug rather than error.
+func isExpectedClientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var nerr net.Error
+	if errors.As(err, &nerr) && nerr.Timeout() {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ETIMEDOUT) ||
+		errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETUNREACH)
 }
 
 func (kc *KTranslate) monitorAlphaChan(ctx context.Context, i int, seri func([]*kt.JCHF, []byte) (*kt.Output, error)) {
