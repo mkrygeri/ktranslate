@@ -102,8 +102,10 @@ func TestEmitAfterTTLExpiry(t *testing.T) {
 	// Both flows counted in the same conversation.
 	a.Equal(int64(1), int64(rec["cnt"].(float64)))
 	a.Equal(int64(1), int64(rec["cnt_rev"].(float64)))
-	a.Equal("SYN", rec["tcp_flags"])
-	a.Equal("ACK", rec["tcp_flags_rev"])
+	// TCP flags from both directions collapse into a single set.
+	a.Equal("SYN,ACK", rec["tcp_flags"])
+	_, hasFlagsRev := rec["tcp_flags_rev"]
+	a.False(hasFlagsRev)
 
 	// Transport ports are intentionally no longer exported.
 	_, hasSrcPort := rec["sourcetransportport"]
@@ -147,7 +149,7 @@ func TestAggregatesAcrossEphemeralPortChanges(t *testing.T) {
 	a.Equal(int64(0), int64(rec["cnt_rev"].(float64)))
 }
 
-func TestTCPFlagsAreAdditiveByDirection(t *testing.T) {
+func TestTCPFlagsCollapseIntoSingleSet(t *testing.T) {
 	a := assert.New(t)
 
 	f, err := NewFormat(nil, kt.CompressionNone)
@@ -174,8 +176,10 @@ func TestTCPFlagsAreAdditiveByDirection(t *testing.T) {
 	a.Equal(1, len(out))
 
 	rec := out[0]
-	// SYN + ACK should be additive in the source->destination direction.
+	// SYN + ACK collapse into a single set for the conversation.
 	a.Equal("SYN,ACK", rec["tcp_flags"])
+	_, hasFlagsRev := rec["tcp_flags_rev"]
+	a.False(hasFlagsRev)
 	a.Equal(int64(2), int64(rec["cnt"].(float64)))
 	a.Equal(int64(0), int64(rec["cnt_rev"].(float64)))
 }

@@ -7,7 +7,7 @@
 - Normalizes client and server direction into a single conversation.
 - Uses `protocol` and `wellknown_port` instead of carrying both L4 ports through to output.
 - Chooses a canonical source and destination for the conversation and sets `sourceinitiated` based on the initiator heuristic.
-- Aggregates bytes, packets, TCP flags, and record counts separately in each direction.
+- Aggregates bytes, packets, and record counts separately in each direction, and TCP flags as a single combined set.
 - Emits nothing until the conversation has been idle for 5 minutes.
 
 ## Output fields
@@ -20,7 +20,6 @@ Each emitted JSON record includes these key fields:
 - `protocol`
 - `wellknown_port`
 - `tcp_flags`
-- `tcp_flags_rev`
 - `octetdeltacount`
 - `octetdeltacount_rev`
 - `packetdeltacount`
@@ -42,7 +41,7 @@ Each emitted JSON record includes these key fields:
 - If a flow arrives without a valid protocol value upstream, protocol `0` may be rendered as `HOPOPT`.
 - `cnt` is the number of aggregated forward-direction records.
 - `cnt_rev` is the number of aggregated reverse-direction records.
-- `tcp_flags` and `tcp_flags_rev` are additive within each direction using bitwise OR.
+- `tcp_flags` is a single set collapsing the TCP flags seen in both directions, combined with bitwise OR.
 
 ## Recommended command lines
 
@@ -115,7 +114,79 @@ When using `-http.source`, the posted JSON must carry a numeric protocol value. 
 
 If `protocol` is missing or defaults to `0`, output records may show `HOPOPT` because that is the name mapped to protocol number `0`.
 
+## Device name resolution
+
+The `devicename` field is not carried in the incoming flow data. It is filled in by a lookup that matches the sender's IP against a device's sending IPs:
+
+- **NetFlow / IPFIX**: the exporter's sampler (agent) IP is looked up. If there is no match, `devicename` falls back to that sampler IP.
+- **HTTP / firehose**: the remote IP of the client posting the JSON is looked up. If there is no match, `devicename` is left blank (there is no IP fallback on this path).
+
+You can provide the device list two ways.
+
+### Option 1: sideload a local device file (no Kentik account needed)
+
+Use `-api_device_file` to load devices from a JSON file without contacting the Kentik API:
+
+```bash
+sudo bin/ktranslate \
+  -format flow_stitch \
+  -compression none \
+  -sinks stdout \
+  -nf.source ipfix \
+  -listen 0.0.0.0:9995 \
+  -api_device_file /etc/ktranslate/devices.json \
+  -stitch.enable=true \
+  -stitch.buffer.len 10000 \
+  -log_level info
+```
+
+Each device entry must list the sender's IP under `sending_ips`, and the `device_name` is what gets emitted:
+
+```json
+{
+  "1": {
+    "id": "1",
+    "company_id": "0",
+    "device_name": "router1",
+    "device_type": "router",
+    "device_status": "V",
+    "sending_ips": ["192.0.2.10"],
+    "device_sample_rate": "1"
+  }
+}
+```
+
+### Option 2: pull the device list from the Kentik API
+
+Supply credentials and ktranslate pulls the full device list at startup and refreshes it roughly hourly, keyed by each device's sending IPs:
+
+```bash
+sudo KENTIK_API_TOKEN=your_token bin/ktranslate \
+  -format flow_stitch \
+  -compression none \
+  -sinks stdout \
+  -nf.source ipfix \
+  -listen 0.0.0.0:9995 \
+  -kentik_email you@example.com \
+  -stitch.enable=true \
+  -stitch.buffer.len 10000 \
+  -log_level info
+```
+
+The email is passed with `-kentik_email` and the API token is read from the `KENTIK_API_TOKEN` environment variable (there is no token flag). Note that `sudo` resets the environment, so set the variable *after* `sudo` (as above) or use `sudo -E` — otherwise the token will not reach ktranslate. Each exporter's IP must be registered as a sending IP on a device in your Kentik account for the lookup to match.
+
+### Behind a proxy or load balancer (firehose)
+
+When flow JSON is posted through a proxy (for example HAProxy or a Kubernetes Service), the remote IP seen by ktranslate is the proxy's, not the original sender's. Either add the proxy IP to a device's `sending_ips`, or override the IP used for the lookup:
+
+```bash
+  -http.remote_ip 192.0.2.10
+```
+
+Tip: run `sudo tcpdump -i <iface> port <listen-port>` to confirm the exact source IP reaching ktranslate, then make sure that IP is in `sending_ips`.
+
 ## Operational notes
+
 
 - A conversation is keyed by unordered source and destination IPs, protocol, well-known port, and device name.
 - Changes in ephemeral client ports do not split the conversation as long as the well-known service port remains the same.

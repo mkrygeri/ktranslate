@@ -20,7 +20,6 @@ type conversationKey string
 type directionalSnapshot struct {
 	bytes uint64
 	pkts  uint64
-	flags uint32
 	count int
 }
 
@@ -36,6 +35,10 @@ type cachedConversation struct {
 
 	srcToDst directionalSnapshot
 	dstToSrc directionalSnapshot
+
+	// tcpFlags is the union of TCP flags seen in both directions of the
+	// conversation, collapsed into a single set.
+	tcpFlags uint32
 
 	totalCount          int
 	sourceInitiatedHits int
@@ -66,7 +69,6 @@ type stitchRecord struct {
 	Protocol             string `json:"protocol"`
 	WellKnownPort        uint32 `json:"wellknown_port"`
 	TCPFlags             string `json:"tcp_flags"`
-	TCPFlagsRev          string `json:"tcp_flags_rev"`
 	OctetDeltaCount      uint64 `json:"octetdeltacount"`
 	OctetDeltaCountRev   uint64 `json:"octetdeltacount_rev"`
 	PacketDeltaCount     uint64 `json:"packetdeltacount"`
@@ -184,15 +186,17 @@ func (f *FlowStitchFormat) aggregate(msg *kt.JCHF, now time.Time) {
 	bytesTotal := msg.InBytes + msg.OutBytes
 	pktsTotal := msg.InPkts + msg.OutPkts
 
+	// TCP flags collapse into a single set for the whole conversation,
+	// regardless of direction.
+	conv.tcpFlags |= msg.TcpFlags
+
 	if src == conv.sourceIP && dst == conv.destinationIP {
 		conv.srcToDst.bytes += bytesTotal
 		conv.srcToDst.pkts += pktsTotal
-		conv.srcToDst.flags |= msg.TcpFlags
 		conv.srcToDst.count++
 	} else {
 		conv.dstToSrc.bytes += bytesTotal
 		conv.dstToSrc.pkts += pktsTotal
-		conv.dstToSrc.flags |= msg.TcpFlags
 		conv.dstToSrc.count++
 	}
 	conv.totalCount++
@@ -235,8 +239,7 @@ func buildRecord(conv *cachedConversation) stitchRecord {
 		SourceInitiated:      conv.sourceInitiatedHits >= conv.destInitiatedHits,
 		Protocol:             conv.protocol,
 		WellKnownPort:        conv.wellKnownPort,
-		TCPFlags:             tcpFlagsToString(conv.srcToDst.flags),
-		TCPFlagsRev:          tcpFlagsToString(conv.dstToSrc.flags),
+		TCPFlags:             tcpFlagsToString(conv.tcpFlags),
 		OctetDeltaCount:      conv.srcToDst.bytes,
 		OctetDeltaCountRev:   conv.dstToSrc.bytes,
 		PacketDeltaCount:     conv.srcToDst.pkts,

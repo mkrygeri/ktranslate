@@ -46,6 +46,15 @@ const (
 	CacheInvalidateDuration = 8 * time.Hour
 	MDB_NO_LOCK             = 0x400000
 	MDB_PERMS               = 0666
+
+	// HTTP server timeouts for the flow listener. Without these, slow or
+	// half-open client connections (scanners, flaky senders) tie up a
+	// goroutine and file descriptor until the kernel TCP stack eventually
+	// gives up, which can take many minutes and leaks connections under load.
+	HttpReadHeaderTimeout = 10 * time.Second
+	HttpReadTimeout       = 30 * time.Second
+	HttpWriteTimeout      = 30 * time.Second
+	HttpIdleTimeout       = 60 * time.Second
 )
 
 var (
@@ -626,7 +635,14 @@ func (kc *KTranslate) listenHTTP() {
 		return
 	}
 
-	server := &http.Server{Addr: kc.config.ListenAddr, Handler: kc.getRouter()}
+	server := &http.Server{
+		Addr:              kc.config.ListenAddr,
+		Handler:           kc.getRouter(),
+		ReadHeaderTimeout: HttpReadHeaderTimeout,
+		ReadTimeout:       HttpReadTimeout,
+		WriteTimeout:      HttpWriteTimeout,
+		IdleTimeout:       HttpIdleTimeout,
+	}
 	var err error
 	if kc.config.SSLCertFile != "" {
 		kc.log.Infof("Setting up HTTPS system on %s%s", kc.config.ListenAddr, HttpAlertInboundPath)

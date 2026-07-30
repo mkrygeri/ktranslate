@@ -183,8 +183,10 @@ func (kc *KTranslate) handleFlow(w http.ResponseWriter, r *http.Request) {
 	_, err = bodyBuffer.ReadFrom(body)
 
 	if err != nil {
-		kc.log.Errorf("There was an error when reading the body content: %v.", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Don't write a response header here: err is non-nil so the deferred
+		// handler will write the (single) error response. Calling http.Error
+		// as well caused a "superfluous response.WriteHeader" and a duplicate
+		// log line on every broken/slow client connection.
 		return
 	}
 	evt := bodyBuffer.Bytes()
