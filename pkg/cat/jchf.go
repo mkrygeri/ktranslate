@@ -76,6 +76,7 @@ func (kc *KTranslate) flowToJCHF(ctx context.Context, dst *kt.JCHF, src *Flow, c
 	dst.CustomStr = make(map[string]string)
 	dst.CustomInt = make(map[string]int32)
 	dst.CustomBigInt = make(map[string]int64)
+	dst.CustomFloat = make(map[string]float32)
 
 	// dst.Timestamp = src.CHF.Timestamp() This is being strage, use current timestamp for now.
 	dst.Timestamp = currentTS
@@ -315,6 +316,11 @@ func (kc *KTranslate) flowToJCHF(ctx context.Context, dst *kt.JCHF, src *Flow, c
 				}
 				dst.CustomStr[name] = addr.String()
 			}
+		case model.Custom_value_Which_float32Val:
+			fv := val.Float32Val()
+			dst.CustomFloat[name] = fv
+		default:
+			kc.log.Warnf("Unexpected type in flow %s -> %v", name, val.Which())
 		}
 	}
 
@@ -411,6 +417,7 @@ func (kc *KTranslate) flowToJCHF(ctx context.Context, dst *kt.JCHF, src *Flow, c
 	}
 
 	// Check if there is ultimate exit data interface and pull this in also.
+	/** Turn this off for now incase its muddying the waters.
 	if udid, ok := dst.CustomInt["ult_exit_device_id"]; ok {
 		if d := kc.apic.GetDevice(ctx, dst.CompanyId, kt.DeviceID(udid)); d != nil {
 			if ui, ok := dst.CustomInt["ult_exit_port"]; ok {
@@ -422,6 +429,7 @@ func (kc *KTranslate) flowToJCHF(ctx context.Context, dst *kt.JCHF, src *Flow, c
 			}
 		}
 	}
+	*/
 
 	// Do we need to remap any of the custom strings?
 	for k, v := range dst.CustomStr {
@@ -635,6 +643,11 @@ func (kc *KTranslate) doEnrichments(ctx context.Context, msgs []*kt.JCHF) []*kt.
 		// If there's a flow stitching system enabled, try to stitch it together here.
 		if kc.stitcher != nil {
 			kc.stitcher.Stitch(msg)
+		}
+
+		// Set up any kentik metric maps if this is a thing for this value.
+		if msg.CustomBigInt["km_measurement_id"] != 0 {
+			kc.tagKM.Enrich(msg.CustomBigInt["km_measurement_id"], msg)
 		}
 	}
 
